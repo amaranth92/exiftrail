@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc && vite build",
-    "check": "tsc src/route.ts --outDir dist-check --target ES2022 --module NodeNext --moduleResolution NodeNext --skipLibCheck && node scripts/self-check.mjs",
+    "check": "tsc src/route.ts --outDir dist-check --target ES2022 --module NodeNext --moduleResolution NodeNext --skipLibCheck && node scripts/self-check.mjs && node scripts/check-samples.mjs",
     "preview": "vite preview --host 0.0.0.0"
   },
   "dependencies": {

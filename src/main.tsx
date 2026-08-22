@@ -35,8 +35,10 @@ function isPhoto(file: File) {
 }
 
 function getTakenAt(tags: Record<string, unknown>, file: File) {
-  const raw = tags.DateTimeOriginal || tags.CreateDate || tags.ModifyDate;
-  return raw instanceof Date ? raw : new Date(file.lastModified);
+  const raw = tags.DateTimeOriginal || tags.CreateDate || tags.ModifyDate || tags["36867"];
+  if (raw instanceof Date) return raw;
+  if (typeof raw === "string") return new Date(raw.replace(/^(\d{4}):(\d{2}):(\d{2})/, "$1-$2-$3"));
+  return new Date(file.lastModified);
 }
 
 async function readPhotos(files: File[]): Promise<{ points: PhotoPoint[]; summary: ScanSummary }> {

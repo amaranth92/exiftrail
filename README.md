@@ -40,6 +40,8 @@ Open the local Vite URL, choose travel photos, review the route, then export a W
 
 No sample photos are required to try the UI. Click **Load demo route** to preview the animation and export flow with in-memory demo points.
 
+For a real EXIF parsing smoke test, use the synthetic GPS photos in `public/samples/`. They are generated test images, not personal photos.
+
 ## MVP Status
 
 Done:
