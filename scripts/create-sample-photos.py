@@ -6,6 +6,13 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "public" / "samples"
 OUT.mkdir(parents=True, exist_ok=True)
 
+no_gps = Image.new("RGB", (640, 420), "#64748b")
+draw = ImageDraw.Draw(no_gps)
+draw.text((42, 182), "No GPS Test Photo", fill="white")
+no_gps_exif = Image.Exif()
+no_gps_exif[0x9003] = "2024:01:31 18:00:00"
+no_gps.save(OUT / "00-no-gps.jpg", exif=no_gps_exif)
+
 points = [
     ("01-perth", -31.9523, 115.8613, "2024:02:01 09:00:00", "#0ea5e9"),
     ("02-fremantle", -32.0569, 115.7439, "2024:02:01 13:30:00", "#14b8a6"),
@@ -39,4 +46,4 @@ for name, lat, lng, taken_at, color in points:
     }
     image.save(OUT / f"{name}.jpg", exif=exif)
 
-print(f"wrote {len(points)} sample photos to {OUT}")
+print(f"wrote {len(points) + 1} sample photos to {OUT}")

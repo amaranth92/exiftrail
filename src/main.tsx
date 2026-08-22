@@ -132,7 +132,7 @@ function demoPoints(): PhotoPoint[] {
 }
 
 async function sampleFiles() {
-  const names = ["01-perth", "02-fremantle", "03-rottnest", "04-margaret-river", "05-albany"];
+  const names = ["00-no-gps", "01-perth", "02-fremantle", "03-rottnest", "04-margaret-river", "05-albany"];
   return Promise.all(
     names.map(async (name) => {
       const response = await fetch(`/samples/${name}.jpg`);

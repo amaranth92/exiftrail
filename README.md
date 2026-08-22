@@ -6,6 +6,10 @@ I wanted to try the viral travel timeline videos, but I never enabled Google Tim
 
 **Core idea:** No Google location history required. Your photos stay local by default.
 
+## Demo
+
+Sample export from generated test photos: [`public/demo/exiftrail-sample-route.webm`](public/demo/exiftrail-sample-route.webm)
+
 ## What It Does
 
 - Reads JPG/JPEG/HEIC/HEIF photo metadata in the browser.

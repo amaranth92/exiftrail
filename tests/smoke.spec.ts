@@ -6,6 +6,8 @@ test("loads sample EXIF photos and exports a WebM route", async ({ page }) => {
   await page.getByRole("button", { name: "Load sample EXIF photos" }).click();
   await expect(page.getByText("Route ready. Review points before export.")).toBeVisible();
   await expect(page.getByText("5 export points")).toBeVisible();
+  await expect(page.getByText("5/6 with GPS")).toBeVisible();
+  await expect(page.getByText("1 skipped")).toBeVisible();
   await expect(page.locator(".leaflet-overlay-pane path").first()).toBeVisible();
 
   await page.getByRole("button", { name: "Preview animation" }).click();
