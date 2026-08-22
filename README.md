@@ -47,6 +47,8 @@ adb install -r app\build\outputs\apk\debug\app-debug.apk
 
 Open ExifTrail on the phone, choose From/To, then tap **Allow photos and create video**. After Android photo permission is granted, the app scans matching photos by date, extracts GPS EXIF locally, and plays the route on OpenStreetMap with a moving marker.
 
+Tap **Save moving video** after the route is created. The Android app renders a vertical MP4 and saves it to the phone gallery under `Movies/ExifTrail`.
+
 Map note: ExifTrail uses Leaflet + OpenStreetMap tiles. It does not bulk-prefetch map tiles; it only loads visible map tiles while previewing the route.
 
 ### Web Demo
@@ -71,6 +73,20 @@ Open the local Vite URL, select photos, review the moving route, then save/share
 Browser note: websites cannot scan a phone photo library by date without a user file picker. The Android app exists for the direct From/To gallery scan flow.
 
 No personal photos are required for automated tests. Synthetic GPS JPEG files live in `public/samples/`.
+
+## Monetization Notes
+
+For Android, use AdMob after the app is stable enough for review. The practical first ad placement is a rewarded ad before premium exports, or a small banner away from the export flow. Do not block the basic route preview behind an ad.
+
+For the web demo, use AdSense only after the site has enough original public content, clear navigation, privacy information, and policy-compliant pages. A thin single-tool page is usually weak for AdSense review.
+
+Recommended rollout:
+
+1. Ship the Android app with local photo scanning and MP4 export.
+2. Add privacy policy and Play Store listing.
+3. Add AdMob test ads only.
+4. Replace test IDs with real ad unit IDs after AdMob approval.
+5. Keep the website as a landing page, docs, and demo; apply for AdSense later when it has stronger content.
 
 ## MVP Status
 

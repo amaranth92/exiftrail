@@ -3,15 +3,26 @@ package dev.exiftrail.app;
 import android.Manifest;
 import android.app.Activity;
 import android.app.DatePickerDialog;
+import android.content.ContentValues;
 import android.content.ContentUris;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
+import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.Path;
+import android.graphics.RectF;
+import android.media.MediaCodec;
+import android.media.MediaCodecInfo;
 import android.media.ExifInterface;
+import android.media.MediaFormat;
+import android.media.MediaMuxer;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.ParcelFileDescriptor;
 import android.provider.MediaStore;
+import android.view.Surface;
 import android.view.Gravity;
 import android.view.View;
 import android.webkit.WebSettings;
@@ -24,6 +35,7 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 
 import java.io.InputStream;
+import java.nio.ByteBuffer;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
@@ -35,6 +47,10 @@ public class MainActivity extends Activity {
     private static final int REQ_PHOTOS = 92;
     private static final double MIN_POINT_GAP_KM = .05;
     private static final double MAX_REASONABLE_SPEED_KMH = 1000d;
+    private static final int VIDEO_WIDTH = 720;
+    private static final int VIDEO_HEIGHT = 1280;
+    private static final int VIDEO_FPS = 30;
+    private static final int VIDEO_SECONDS = 10;
 
     private final SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd", Locale.US);
     private final SimpleDateFormat mapDateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US);
@@ -45,6 +61,7 @@ public class MainActivity extends Activity {
     private Button fromButton;
     private Button toButton;
     private Button createButton;
+    private Button saveButton;
     private TextView status;
     private WebView mapView;
 
@@ -99,6 +116,13 @@ public class MainActivity extends Activity {
         createLp.setMargins(0, dp(16), 0, dp(16));
         root.addView(createButton, createLp);
 
+        saveButton = primaryButton("Save moving video");
+        saveButton.setEnabled(false);
+        saveButton.setOnClickListener(v -> saveVideo());
+        LinearLayout.LayoutParams saveLp = new LinearLayout.LayoutParams(-1, dp(62));
+        saveLp.setMargins(0, 0, 0, dp(16));
+        root.addView(saveButton, saveLp);
+
         status = text("No upload. Photos are only read on this phone.", 16, 0xff475569, true);
         root.addView(status);
 
@@ -139,6 +163,7 @@ public class MainActivity extends Activity {
 
     private void buildRoute() {
         createButton.setEnabled(false);
+        saveButton.setEnabled(false);
         status.setText("Scanning photos in the selected date range...");
         points.clear();
 
@@ -152,9 +177,38 @@ public class MainActivity extends Activity {
                     status.setText("Scanned " + result.total + " photos in range, found " + result.withGps + " with GPS. Try a wider range or enable camera location tags.");
                 } else {
                     status.setText(points.size() + " route points found from " + result.total + " photos. Moving route preview is playing.");
+                    saveButton.setEnabled(true);
                     renderMapRoute(points);
                 }
             });
+        }).start();
+    }
+
+    private void saveVideo() {
+        if (points.size() < 2) {
+            status.setText("Create a route first, then save the moving video.");
+            return;
+        }
+        createButton.setEnabled(false);
+        saveButton.setEnabled(false);
+        status.setText("Saving MP4 video to Gallery...");
+
+        List<RoutePoint> route = new ArrayList<>(points);
+        new Thread(() -> {
+            try {
+                Uri uri = exportRouteVideo(route);
+                runOnUiThread(() -> {
+                    createButton.setEnabled(true);
+                    saveButton.setEnabled(true);
+                    status.setText("Saved moving route video to Gallery: " + uri);
+                });
+            } catch (Exception e) {
+                runOnUiThread(() -> {
+                    createButton.setEnabled(true);
+                    saveButton.setEnabled(true);
+                    status.setText("Video save failed: " + e.getMessage());
+                });
+            }
         }).start();
     }
 
@@ -336,6 +390,204 @@ public class MainActivity extends Activity {
         return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
+    private Uri exportRouteVideo(List<RoutePoint> route) throws Exception {
+        ContentValues values = new ContentValues();
+        String name = "ExifTrail-" + new SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(new Date()) + ".mp4";
+        values.put(MediaStore.Video.Media.DISPLAY_NAME, name);
+        values.put(MediaStore.Video.Media.MIME_TYPE, "video/mp4");
+        if (Build.VERSION.SDK_INT >= 29) {
+            values.put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/ExifTrail");
+            values.put(MediaStore.Video.Media.IS_PENDING, 1);
+        }
+
+        Uri uri = getContentResolver().insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values);
+        if (uri == null) throw new IllegalStateException("Could not create video file");
+
+        try (ParcelFileDescriptor pfd = getContentResolver().openFileDescriptor(uri, "rw")) {
+            if (pfd == null) throw new IllegalStateException("Could not open video file");
+            encodeRouteVideo(route, pfd);
+        } catch (Exception e) {
+            getContentResolver().delete(uri, null, null);
+            throw e;
+        }
+
+        if (Build.VERSION.SDK_INT >= 29) {
+            ContentValues done = new ContentValues();
+            done.put(MediaStore.Video.Media.IS_PENDING, 0);
+            getContentResolver().update(uri, done, null, null);
+        }
+        return uri;
+    }
+
+    private void encodeRouteVideo(List<RoutePoint> route, ParcelFileDescriptor pfd) throws Exception {
+        MediaFormat format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, VIDEO_WIDTH, VIDEO_HEIGHT);
+        format.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
+        format.setInteger(MediaFormat.KEY_BIT_RATE, 4_000_000);
+        format.setInteger(MediaFormat.KEY_FRAME_RATE, VIDEO_FPS);
+        format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1);
+
+        MediaCodec encoder = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC);
+        MediaMuxer muxer = null;
+        Surface surface = null;
+        try {
+            encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
+            surface = encoder.createInputSurface();
+            encoder.start();
+            muxer = new MediaMuxer(pfd.getFileDescriptor(), MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
+
+            MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
+            MuxerState muxerState = new MuxerState(muxer);
+            int totalFrames = VIDEO_SECONDS * VIDEO_FPS;
+            for (int frame = 0; frame < totalFrames; frame++) {
+                float progress = frame / (float) (totalFrames - 1);
+                Canvas canvas = surface.lockCanvas(null);
+                try {
+                    drawVideoFrame(canvas, route, progress);
+                } finally {
+                    surface.unlockCanvasAndPost(canvas);
+                }
+                drainEncoder(encoder, info, muxerState, false);
+                Thread.sleep(1000L / VIDEO_FPS);
+                if (frame % VIDEO_FPS == 0) {
+                    int seconds = frame / VIDEO_FPS;
+                    runOnUiThread(() -> status.setText("Saving MP4 video... " + seconds + " / " + VIDEO_SECONDS + " sec"));
+                }
+            }
+            encoder.signalEndOfInputStream();
+            drainEncoder(encoder, info, muxerState, true);
+        } finally {
+            if (surface != null) surface.release();
+            encoder.stop();
+            encoder.release();
+            if (muxer != null) {
+                try {
+                    muxer.stop();
+                } catch (Exception ignored) {
+                }
+                muxer.release();
+            }
+        }
+    }
+
+    private void drainEncoder(MediaCodec encoder, MediaCodec.BufferInfo info, MuxerState muxerState, boolean endOfStream) {
+        while (true) {
+            int outputIndex = encoder.dequeueOutputBuffer(info, endOfStream ? 10_000 : 0);
+            if (outputIndex == MediaCodec.INFO_TRY_AGAIN_LATER) {
+                if (!endOfStream) return;
+            } else if (outputIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                muxerState.trackIndex = muxerState.muxer.addTrack(encoder.getOutputFormat());
+                muxerState.muxer.start();
+                muxerState.started = true;
+            } else if (outputIndex >= 0) {
+                ByteBuffer data = encoder.getOutputBuffer(outputIndex);
+                if (data != null && info.size > 0 && muxerState.started) {
+                    data.position(info.offset);
+                    data.limit(info.offset + info.size);
+                    muxerState.muxer.writeSampleData(muxerState.trackIndex, data, info);
+                }
+                encoder.releaseOutputBuffer(outputIndex, false);
+                if ((info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) return;
+            }
+        }
+    }
+
+    private void drawVideoFrame(Canvas canvas, List<RoutePoint> route, float progress) {
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        canvas.drawColor(0xffe0f2fe);
+
+        paint.setColor(0xffffffff);
+        paint.setStrokeWidth(2);
+        for (int y = 0; y < VIDEO_HEIGHT; y += 80) canvas.drawLine(0, y, VIDEO_WIDTH, y, paint);
+        for (int x = 0; x < VIDEO_WIDTH; x += 80) canvas.drawLine(x, 0, x, VIDEO_HEIGHT, paint);
+
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(0x33ffffff);
+        canvas.drawOval(new RectF(-140, 120, 360, 500), paint);
+        canvas.drawOval(new RectF(420, 760, 900, 1160), paint);
+
+        RectF plot = new RectF(72, 230, VIDEO_WIDTH - 72, VIDEO_HEIGHT - 250);
+        Bounds bounds = bounds(route);
+        Path full = routePath(route, route.size() - 1, bounds, plot);
+
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeCap(Paint.Cap.ROUND);
+        paint.setStrokeJoin(Paint.Join.ROUND);
+        paint.setStrokeWidth(16);
+        paint.setColor(0x330f172a);
+        canvas.drawPath(full, paint);
+
+        int currentIndex = Math.max(1, Math.round((route.size() - 1) * progress));
+        Path active = routePath(route, currentIndex, bounds, plot);
+        paint.setStrokeWidth(18);
+        paint.setColor(0xff0ea5e9);
+        canvas.drawPath(active, paint);
+
+        float[] pos = project(route.get(currentIndex), bounds, plot);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(0xffffffff);
+        canvas.drawCircle(pos[0], pos[1], 27, paint);
+        paint.setColor(0xfff97316);
+        canvas.drawCircle(pos[0], pos[1], 19, paint);
+
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(0xff0f172a);
+        canvas.drawRoundRect(new RectF(48, 52, VIDEO_WIDTH - 48, 178), 30, 30, paint);
+        paint.setColor(Color.WHITE);
+        paint.setTextSize(38);
+        paint.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        canvas.drawText("ExifTrail", 82, 106, paint);
+        paint.setTextSize(25);
+        paint.setColor(0xffbfdbfe);
+        canvas.drawText(mapDateFormat.format(new Date(route.get(currentIndex).time)), 82, 148, paint);
+
+        paint.setColor(0xff0f172a);
+        paint.setTextSize(30);
+        canvas.drawText(route.size() + " photo GPS points", 56, VIDEO_HEIGHT - 144, paint);
+        paint.setColor(0xff64748b);
+        paint.setTextSize(23);
+        canvas.drawText("Created locally from photo EXIF metadata", 56, VIDEO_HEIGHT - 104, paint);
+
+        paint.setColor(0x220f172a);
+        canvas.drawRoundRect(new RectF(56, VIDEO_HEIGHT - 70, VIDEO_WIDTH - 56, VIDEO_HEIGHT - 52), 99, 99, paint);
+        paint.setColor(0xff38bdf8);
+        canvas.drawRoundRect(new RectF(56, VIDEO_HEIGHT - 70, 56 + (VIDEO_WIDTH - 112) * progress, VIDEO_HEIGHT - 52), 99, 99, paint);
+    }
+
+    private Path routePath(List<RoutePoint> route, int endIndex, Bounds bounds, RectF plot) {
+        Path path = new Path();
+        for (int i = 0; i <= endIndex; i++) {
+            float[] pos = project(route.get(i), bounds, plot);
+            if (i == 0) path.moveTo(pos[0], pos[1]);
+            else path.lineTo(pos[0], pos[1]);
+        }
+        return path;
+    }
+
+    private float[] project(RoutePoint point, Bounds bounds, RectF plot) {
+        double latRange = Math.max(bounds.maxLat - bounds.minLat, .0001);
+        double lngRange = Math.max(bounds.maxLng - bounds.minLng, .0001);
+        float x = (float) (plot.left + ((point.lng - bounds.minLng) / lngRange) * plot.width());
+        float y = (float) (plot.bottom - ((point.lat - bounds.minLat) / latRange) * plot.height());
+        return new float[]{x, y};
+    }
+
+    private Bounds bounds(List<RoutePoint> route) {
+        Bounds b = new Bounds();
+        for (RoutePoint point : route) {
+            b.minLat = Math.min(b.minLat, point.lat);
+            b.maxLat = Math.max(b.maxLat, point.lat);
+            b.minLng = Math.min(b.minLng, point.lng);
+            b.maxLng = Math.max(b.maxLng, point.lng);
+        }
+        double latPad = Math.max((b.maxLat - b.minLat) * .12, .02);
+        double lngPad = Math.max((b.maxLng - b.minLng) * .12, .02);
+        b.minLat -= latPad;
+        b.maxLat += latPad;
+        b.minLng -= lngPad;
+        b.maxLng += lngPad;
+        return b;
+    }
+
     private void renderMapRoute(List<RoutePoint> route) {
         StringBuilder json = new StringBuilder("[");
         for (int i = 0; i < route.size(); i++) {
@@ -403,6 +655,23 @@ public class MainActivity extends Activity {
             this.points = points;
             this.total = total;
             this.withGps = withGps;
+        }
+    }
+
+    private static class Bounds {
+        double minLat = Double.MAX_VALUE;
+        double maxLat = -Double.MAX_VALUE;
+        double minLng = Double.MAX_VALUE;
+        double maxLng = -Double.MAX_VALUE;
+    }
+
+    private static class MuxerState {
+        final MediaMuxer muxer;
+        boolean started;
+        int trackIndex = -1;
+
+        MuxerState(MediaMuxer muxer) {
+            this.muxer = muxer;
         }
     }
 
