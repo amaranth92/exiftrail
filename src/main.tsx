@@ -24,9 +24,27 @@ type ScanSummary = {
   withoutGps: number;
   duplicates: number;
   suspicious: number;
+  scanned: number;
 };
 
 type PrivacyMode = "exact" | "rounded";
+type RouteScope = "recent" | "all";
+type ScanProgress = { done: number; total: number };
+
+type FileSystemDirectoryHandleLike = {
+  kind: "directory";
+  name: string;
+  values(): AsyncIterable<FileSystemDirectoryHandleLike | FileSystemFileHandleLike>;
+};
+
+type FileSystemFileHandleLike = {
+  kind: "file";
+  name: string;
+  getFile(): Promise<File>;
+};
+
+const RECENT_WINDOW_DAYS = 90;
+const EXIF_CONCURRENCY = Math.max(4, Math.min(8, navigator.hardwareConcurrency || 4));
 
 const PHOTO_TYPES = new Set(["image/jpeg", "image/jpg", "image/heic", "image/heif"]);
 function isPhoto(file: File) {
@@ -41,9 +59,31 @@ function getTakenAt(tags: Record<string, unknown>, file: File) {
   return new Date(file.lastModified);
 }
 
-async function readPhotos(files: File[]): Promise<{ points: PhotoPoint[]; summary: ScanSummary }> {
-  const rows: Array<PhotoPoint | null> = await Promise.all(
-    files.filter(isPhoto).map(async (file, index) => {
+async function mapLimit<T, R>(items: T[], limit: number, worker: (item: T, index: number) => Promise<R>) {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, async () => {
+      while (next < items.length) {
+        const index = next;
+        next += 1;
+        results[index] = await worker(items[index], index);
+      }
+    }),
+  );
+  return results;
+}
+
+async function readPhotos(
+  files: File[],
+  onProgress?: (progress: ScanProgress) => void,
+): Promise<{ points: PhotoPoint[]; summary: ScanSummary }> {
+  const photos = files.filter(isPhoto).sort((a, b) => b.lastModified - a.lastModified);
+  let done = 0;
+  const rows: Array<PhotoPoint | null> = await mapLimit(
+    photos,
+    EXIF_CONCURRENCY,
+    async (file, index) => {
       try {
         const tags = (await exifr.parse(file, { gps: true, tiff: true, exif: true })) || {};
         const latitude = Number(tags.latitude);
@@ -62,8 +102,11 @@ async function readPhotos(files: File[]): Promise<{ points: PhotoPoint[]; summar
         } satisfies PhotoPoint;
       } catch {
         return null;
+      } finally {
+        done += 1;
+        onProgress?.({ done, total: photos.length });
       }
-    }),
+    },
   );
 
   const sorted = rows.filter((row): row is PhotoPoint => row !== null);
@@ -76,9 +119,10 @@ async function readPhotos(files: File[]): Promise<{ points: PhotoPoint[]; summar
     summary: {
       total: files.filter(isPhoto).length,
       withGps: sorted.length,
-      withoutGps: files.filter(isPhoto).length - sorted.length,
+      withoutGps: photos.length - sorted.length,
       duplicates: normalized.duplicates,
       suspicious: normalized.points.filter((point) => point.suspicious).length,
+      scanned: photos.length,
     },
   };
 }
@@ -99,6 +143,30 @@ function displayPoint(point: PhotoPoint, privacyMode: PrivacyMode): PhotoPoint {
 function applyPrivacy(points: PhotoPoint[], privacyMode: PrivacyMode, trimEnds: boolean) {
   const trimmed = trimEnds && points.length > 4 ? points.slice(1, -1) : points;
   return trimmed.map((point) => displayPoint(point, privacyMode));
+}
+
+function recentPoints(points: PhotoPoint[]) {
+  const latest = points.at(-1);
+  if (!latest) return points;
+  const minTime = +latest.time - RECENT_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+  const recent = points.filter((point) => +point.time >= minTime);
+  return recent.length >= 2 ? recent : points;
+}
+
+async function collectFilesFromDirectory(handle: FileSystemDirectoryHandleLike) {
+  const files: File[] = [];
+  async function walk(directory: FileSystemDirectoryHandleLike) {
+    for await (const entry of directory.values()) {
+      if (entry.kind === "file") {
+        const file = await entry.getFile();
+        if (isPhoto(file)) files.push(file);
+      } else {
+        await walk(entry);
+      }
+    }
+  }
+  await walk(handle);
+  return files;
 }
 
 function svgThumb(label: string, color: string) {
@@ -332,22 +400,29 @@ function App() {
   const [tripLabel, setTripLabel] = useState("My travel route");
   const [privacyMode, setPrivacyMode] = useState<PrivacyMode>("exact");
   const [trimEnds, setTrimEnds] = useState(false);
+  const [routeScope, setRouteScope] = useState<RouteScope>("recent");
+  const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
 
   useEffect(() => () => points.forEach((point) => URL.revokeObjectURL(point.url)), [points]);
   useEffect(() => {
     folderInputRef.current?.setAttribute("webkitdirectory", "");
   }, []);
 
-  const days = useMemo(() => Array.from(new Set(points.map((point) => dayKey(point.time)))), [points]);
+  const scopedPoints = useMemo(() => (routeScope === "recent" ? recentPoints(points) : points), [points, routeScope]);
+  const days = useMemo(() => Array.from(new Set(scopedPoints.map((point) => dayKey(point.time)))), [scopedPoints]);
   const filtered = useMemo(
-    () => points.filter((point) => day === "all" || dayKey(point.time) === day),
-    [day, points],
+    () => scopedPoints.filter((point) => day === "all" || dayKey(point.time) === day),
+    [day, scopedPoints],
   );
   const privatePoints = useMemo(
     () => applyPrivacy(filtered, privacyMode, trimEnds),
     [filtered, privacyMode, trimEnds],
   );
   const active = useMemo(() => privatePoints.filter((point) => point.enabled && !point.suspicious), [privatePoints]);
+
+  useEffect(() => {
+    if (day !== "all" && !days.includes(day)) setDay("all");
+  }, [day, days]);
 
   async function onFiles(files: FileList | null) {
     if (!files) return;
@@ -356,22 +431,41 @@ function App() {
 
   async function loadFiles(files: File[]) {
     setBusy(true);
-    setMessage("Reading EXIF locally. Nothing is uploaded.");
+    setScanProgress({ done: 0, total: files.filter(isPhoto).length });
+    setMessage("Scanning your photo library locally. Nothing is uploaded.");
     points.forEach((point) => URL.revokeObjectURL(point.url));
-    const result = await readPhotos(files);
+    const result = await readPhotos(files, setScanProgress);
     setPoints(result.points);
     setSummary(result.summary);
+    setRouteScope("recent");
     setDay("all");
     setProgress(1);
     setBusy(false);
+    setScanProgress(null);
     setMessage(result.points.length ? "Route ready. Review points before export." : "No GPS-tagged photos found.");
+  }
+
+  async function askAndScanLibrary() {
+    setMessage("Choose a Photos, Pictures, DCIM, or travel folder. ExifTrail only requests read access.");
+    const picker = (window as Window & {
+      showDirectoryPicker?: (options?: { id?: string; mode?: "read" }) => Promise<FileSystemDirectoryHandleLike>;
+    }).showDirectoryPicker;
+
+    if (!picker) {
+      folderInputRef.current?.click();
+      return;
+    }
+
+    const handle = await picker({ id: "exiftrail-photo-library", mode: "read" });
+    const files = await collectFilesFromDirectory(handle);
+    await loadFiles(files);
   }
 
   function loadDemo() {
     points.forEach((point) => point.url.startsWith("blob:") && URL.revokeObjectURL(point.url));
     const demo = demoPoints();
     setPoints(demo);
-    setSummary({ total: demo.length, withGps: demo.length, withoutGps: 0, duplicates: 0, suspicious: 0 });
+    setSummary({ total: demo.length, withGps: demo.length, withoutGps: 0, duplicates: 0, suspicious: 0, scanned: demo.length });
     setTripLabel("Western Australia demo route");
     setDay("all");
     setProgress(1);
@@ -405,7 +499,17 @@ function App() {
             Rebuild a viral travel route video from your own photo EXIF GPS and timestamps. No Google
             location history required.
           </p>
+          <div className="consent">
+            <b>Want to use your recent photos automatically?</b>
+            <span>
+              Pick your photo library folder once. The app scans it locally, sorts GPS-tagged photos by capture time,
+              and starts with the latest {RECENT_WINDOW_DAYS} days so you do not have to choose photos one by one.
+            </span>
+          </div>
           <div className="actions">
+            <button className="primary" disabled={busy} onClick={() => askAndScanLibrary().catch((err) => setMessage(err.message || "Photo library scan was cancelled."))}>
+              Scan my photo library
+            </button>
             <label className="primary">
               Choose photos
               <input type="file" multiple accept="image/jpeg,image/heic,image/heif" onChange={(e) => onFiles(e.target.files)} />
@@ -437,6 +541,13 @@ function App() {
             <input value={tripLabel} onChange={(e) => setTripLabel(e.target.value)} maxLength={60} />
           </label>
           <label>
+            Route scope
+            <select value={routeScope} onChange={(e) => setRouteScope(e.target.value as RouteScope)}>
+              <option value="recent">Recent {RECENT_WINDOW_DAYS} days</option>
+              <option value="all">All GPS photos</option>
+            </select>
+          </label>
+          <label>
             Date segment
             <select value={day} onChange={(e) => setDay(e.target.value)}>
               <option value="all">All days</option>
@@ -457,9 +568,10 @@ function App() {
         </div>
         <div className="stats">
           <strong>{message}</strong>
+          {scanProgress && <span>{scanProgress.done}/{scanProgress.total} photos scanned</span>}
           {summary && (
             <span>
-              {active.length} export points · {days.length || 0} day segments · {summary.withGps}/{summary.total} with GPS · {summary.withoutGps} skipped · {summary.duplicates} near-duplicates ·{" "}
+              {active.length} export points · {days.length || 0} day segments · {summary.withGps}/{summary.scanned} with GPS · {summary.withoutGps} skipped · {summary.duplicates} near-duplicates ·{" "}
               {summary.suspicious} jump warnings
             </span>
           )}

@@ -12,9 +12,12 @@ Sample export from generated test photos: [`public/demo/exiftrail-sample-route.w
 
 ## What It Does
 
+- Asks you to choose a photo library folder before scanning anything.
+- Recursively scans the selected folder for photos, so you do not have to pick images one by one.
 - Reads JPG/JPEG/HEIC/HEIF photo metadata in the browser.
 - Extracts EXIF GPS coordinates and capture time.
 - Sorts photo points chronologically.
+- Starts with the latest 90 days by default, with an option to switch to all GPS photos.
 - Removes very close duplicate points.
 - Flags suspicious GPS jumps.
 - Filters the route by date segment.
@@ -44,6 +47,7 @@ Open the local Vite URL, choose travel photos, review the route, then export a W
 
 No personal photos are required to try the UI:
 
+- Click **Scan my photo library** to choose a Photos/Pictures/DCIM/travel folder and build a recent route from it.
 - Click **Load demo route** to preview the animation and export flow with in-memory demo points.
 - Click **Load sample EXIF photos** to run the same import path against synthetic GPS JPEG files in `public/samples/`. They are generated test images, not personal photos.
 
@@ -53,6 +57,9 @@ Done:
 
 - Multi-photo import
 - Folder import in browsers that support `webkitdirectory`
+- Read-only photo library folder scan with the File System Access API where supported
+- Concurrent EXIF parsing for larger folders
+- Recent 90-day route scope by default
 - Synthetic sample EXIF photo import
 - EXIF GPS/time extraction
 - GPS-missing photo skip summary
