@@ -173,10 +173,10 @@ button:disabled {
   background: transparent;
 }
 
-.vehicle-marker model-viewer {
-  width: 72px;
-  height: 72px;
-  --poster-color: transparent;
+.vehicle-marker img {
+  width: 96px;
+  height: 96px;
+  object-fit: contain;
   pointer-events: none;
 }
 

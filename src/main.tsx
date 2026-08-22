@@ -185,29 +185,28 @@ function distanceKm(a: PhotoPoint, b: PhotoPoint) {
 
 function vehicleForPoint(points: PhotoPoint[], index: number): VehicleKind {
   if (index <= 0) return "car";
-  const previous = points[index - 1];
   const current = points[index];
-  const hours = Math.max((+current.time - +previous.time) / 3_600_000, 1 / 60);
-  const speed = distanceKm(previous, current) / hours;
-  if (speed >= 220) return "plane";
-  if (speed >= 8 && speed < 40) return "boat";
+  for (let candidateIndex = index - 1; candidateIndex >= Math.max(0, index - 8); candidateIndex -= 1) {
+    const candidate = points[candidateIndex];
+    const distance = distanceKm(candidate, current);
+    const hours = Math.max((+current.time - +candidate.time) / 3_600_000, 1 / 60);
+    const speed = distance / hours;
+    if (distance >= 180 || speed >= 220) return "plane";
+    if (distance >= 8 && distance < 80 && speed >= 3 && speed < 80) return "boat";
+  }
   return "car";
 }
 
-function vehicleModel(kind: VehicleKind) {
-  return `./assets/vehicles/${kind}/${kind}.glb`;
-}
-
-function vehicleLabel(kind: VehicleKind) {
-  return kind === "plane" ? "air" : kind;
+function vehicleSprite(kind: VehicleKind) {
+  return `./assets/vehicles/sprites/${kind}.png`;
 }
 
 function vehicleIcon(kind: VehicleKind) {
   return L.divIcon({
     className: "vehicle-marker",
-    iconSize: [72, 72],
-    iconAnchor: [36, 36],
-    html: `<model-viewer src="${vehicleModel(kind)}" camera-controls="false" disable-zoom autoplay shadow-intensity="0.35" alt="${vehicleLabel(kind)}"></model-viewer>`,
+    iconSize: [96, 96],
+    iconAnchor: [48, 48],
+    html: `<img src="${vehicleSprite(kind)}" width="96" height="96" alt="${kind} 3D vehicle" />`,
   });
 }
 
@@ -256,6 +255,11 @@ async function exportVideo(points: PhotoPoint[], tripLabel: string): Promise<Exp
 
   const route = project(active, canvas.width, 860);
   const thumbs = await Promise.all(active.slice(0, 8).map((point) => loadImage(point.url)));
+  const vehicleSprites = {
+    car: await loadImage(vehicleSprite("car")),
+    boat: await loadImage(vehicleSprite("boat")),
+    plane: await loadImage(vehicleSprite("plane")),
+  } satisfies Record<VehicleKind, HTMLImageElement>;
   const mapElement = document.querySelector<HTMLElement>(".map");
   const mapImage = mapElement
     ? await html2canvas(mapElement, {
@@ -275,7 +279,7 @@ async function exportVideo(points: PhotoPoint[], tripLabel: string): Promise<Exp
   const frames = 270;
   for (let frame = 0; frame < frames; frame += 1) {
     const t = frame / (frames - 1);
-    drawVideoFrame(ctx, canvas, route, active, thumbs, mapImage, t, tripLabel);
+    drawVideoFrame(ctx, canvas, route, active, thumbs, vehicleSprites, mapImage, t, tripLabel);
     await new Promise((resolve) => requestAnimationFrame(resolve));
   }
   recorder.stop();
@@ -292,6 +296,7 @@ function drawVideoFrame(
   route: Array<PhotoPoint & { x: number; y: number }>,
   points: PhotoPoint[],
   thumbs: HTMLImageElement[],
+  vehicleSprites: Record<VehicleKind, HTMLImageElement>,
   mapImage: HTMLCanvasElement | null,
   t: number,
   tripLabel: string,
@@ -343,7 +348,7 @@ function drawVideoFrame(
 
   const currentIndex = Math.min(route.length - 1, Math.floor(t * route.length));
   const current = route[currentIndex];
-  drawVehicle(ctx, current.x, current.y, vehicleForPoint(points, currentIndex));
+  drawVehicle(ctx, current.x, current.y, vehicleForPoint(points, currentIndex), vehicleSprites);
   ctx.restore();
 
   ctx.fillStyle = "#111827";
@@ -367,23 +372,16 @@ function drawVideoFrame(
   });
 }
 
-function drawVehicle(ctx: CanvasRenderingContext2D, x: number, y: number, kind: VehicleKind) {
-  const colors: Record<VehicleKind, string> = { car: "#fb7185", boat: "#14b8a6", plane: "#8b5cf6" };
-  const symbols: Record<VehicleKind, string> = { car: "CAR", boat: "BOAT", plane: "AIR" };
+function drawVehicle(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  kind: VehicleKind,
+  sprites: Record<VehicleKind, HTMLImageElement>,
+) {
   ctx.save();
   ctx.translate(x, y);
-  ctx.fillStyle = "rgba(15,23,42,.25)";
-  ctx.beginPath();
-  ctx.ellipse(0, 24, 38, 11, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = colors[kind];
-  ctx.beginPath();
-  ctx.roundRect(-34, -18, 68, 34, 12);
-  ctx.fill();
-  ctx.fillStyle = "#fff";
-  ctx.font = "700 16px Inter, system-ui";
-  ctx.textAlign = "center";
-  ctx.fillText(symbols[kind], 0, 5);
+  ctx.drawImage(sprites[kind], -96, -96, 192, 192);
   ctx.restore();
 }
 

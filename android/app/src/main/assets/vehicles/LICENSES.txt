@@ -7,3 +7,5 @@ https://kenney.nl/assets/watercraft-kit
 plane.glb: Airplane-2 by get3dmodels.com, CC-BY.
 https://www.getglb.com/vehicles/airplane-low-poly-2/
 https://creativecommons.org/licenses/by/4.0/
+
+The PNG sprites in sprites/ are transparent renders generated from these models for video export and mobile rendering.

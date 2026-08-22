@@ -16,4 +16,4 @@ plane.glb
   https://www.getglb.com/vehicles/airplane-low-poly-2/
   https://creativecommons.org/licenses/by/4.0/
 
-The model files are used as small route markers. The rest of ExifTrail is MIT licensed.
+The model files are used as route markers. The PNG sprites in sprites/ are transparent renders generated from these models for video export and mobile rendering. The rest of ExifTrail is MIT licensed.
