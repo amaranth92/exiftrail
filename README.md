@@ -12,16 +12,15 @@ Sample export from generated test photos: [`public/demo/exiftrail-sample-route.w
 
 ## What It Does
 
-- Lets mobile users allow photo access through the phone photo picker.
-- Reads the selected photos in one batch.
-- Optionally limits the route to a date range before building the video.
+- Android app: lets you choose a From/To date range, allow photo access once, then scans the phone photo library directly through MediaStore.
+- Web demo: reads photos selected by the user because browsers cannot scan a full phone gallery by date.
 - Reads JPG/JPEG/HEIC/HEIF photo metadata in the browser.
 - Extracts EXIF GPS coordinates and capture time.
 - Sorts photo points chronologically.
 - Removes very close duplicate points.
 - Flags suspicious GPS jumps.
 - Shows the route on OpenStreetMap via Leaflet.
-- Automatically plays a moving route preview.
+- Automatically plays a moving route preview with a marker traveling through the route in photo time order.
 - Exports a vertical 9:16 route video for Shorts, TikTok, Instagram, Reddit, or Threads.
 - Uses the native share sheet when the browser supports sharing generated video files.
 
@@ -36,12 +35,28 @@ Sample export from generated test photos: [`public/demo/exiftrail-sample-route.w
 
 ## Run Locally
 
+### Android App
+
+This is the main path for the real phone-gallery workflow:
+
+```powershell
+cd android
+.\gradlew.bat assembleDebug
+adb install -r app\build\outputs\apk\debug\app-debug.apk
+```
+
+Open ExifTrail on the phone, choose From/To, then tap **Allow photos and create video**. After Android photo permission is granted, the app scans matching photos by date, extracts GPS EXIF locally, and plays the route on OpenStreetMap with a moving marker.
+
+Map note: ExifTrail uses Leaflet + OpenStreetMap tiles. It does not bulk-prefetch map tiles; it only loads visible map tiles while previewing the route.
+
+### Web Demo
+
 ```bash
 npm install
 npm run dev
 ```
 
-Open the local Vite URL, allow photos, review the moving route, then save/share the video.
+Open the local Vite URL, select photos, review the moving route, then save/share the video.
 
 ## Use On A Phone
 
@@ -53,7 +68,7 @@ Open the local Vite URL, allow photos, review the moving route, then save/share 
 6. Tap **Save video**.
 7. Post the generated vertical video to Reels, TikTok, Shorts, Threads, or Reddit.
 
-Browser note: websites cannot secretly scan a phone photo library. The user must explicitly allow/select photos first. A native Android/iOS app would be required for true full-gallery background scanning.
+Browser note: websites cannot scan a phone photo library by date without a user file picker. The Android app exists for the direct From/To gallery scan flow.
 
 No personal photos are required for automated tests. Synthetic GPS JPEG files live in `public/samples/`.
 

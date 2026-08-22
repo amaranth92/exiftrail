@@ -4,3 +4,8 @@ dist-check/
 test-results/
 .env
 .DS_Store
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+*.iml

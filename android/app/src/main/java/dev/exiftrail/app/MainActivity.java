@@ -1,0 +1,409 @@
+package dev.exiftrail.app;
+
+import android.Manifest;
+import android.app.Activity;
+import android.app.DatePickerDialog;
+import android.content.ContentUris;
+import android.content.pm.PackageManager;
+import android.database.Cursor;
+import android.graphics.Color;
+import android.media.ExifInterface;
+import android.net.Uri;
+import android.os.Build;
+import android.os.Bundle;
+import android.provider.MediaStore;
+import android.view.Gravity;
+import android.view.View;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
+import android.widget.Button;
+import android.widget.DatePicker;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.widget.TextView;
+
+import java.io.InputStream;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.Date;
+import java.util.List;
+import java.util.Locale;
+
+public class MainActivity extends Activity {
+    private static final int REQ_PHOTOS = 92;
+    private static final double MIN_POINT_GAP_KM = .05;
+    private static final double MAX_REASONABLE_SPEED_KMH = 1000d;
+
+    private final SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd", Locale.US);
+    private final SimpleDateFormat mapDateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US);
+    private final Calendar from = Calendar.getInstance();
+    private final Calendar to = Calendar.getInstance();
+    private final List<RoutePoint> points = new ArrayList<>();
+
+    private Button fromButton;
+    private Button toButton;
+    private Button createButton;
+    private TextView status;
+    private WebView mapView;
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+
+        from.set(2023, Calendar.JANUARY, 1, 0, 0, 0);
+        to.set(Calendar.HOUR_OF_DAY, 23);
+        to.set(Calendar.MINUTE, 59);
+        to.set(Calendar.SECOND, 59);
+
+        setContentView(buildUi());
+        refreshDates();
+    }
+
+    private View buildUi() {
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(20), dp(34), dp(20), dp(28));
+        root.setBackgroundColor(Color.WHITE);
+        scroll.addView(root);
+
+        TextView eyebrow = text("PRIVATE PHOTO ROUTE VIDEO", 14, 0xff0369a1, true);
+        eyebrow.setLetterSpacing(.08f);
+        root.addView(eyebrow);
+
+        TextView title = text("ExifTrail", 50, 0xff0f172a, true);
+        root.addView(title);
+
+        TextView lead = text("Pick a date range. Allow photo access once. ExifTrail scans your photo library and animates where you moved over time.", 24, 0xff111827, true);
+        lead.setPadding(0, dp(16), 0, dp(18));
+        root.addView(lead);
+
+        LinearLayout dates = new LinearLayout(this);
+        dates.setOrientation(LinearLayout.HORIZONTAL);
+        dates.setGravity(Gravity.CENTER);
+        dates.setWeightSum(2);
+        root.addView(dates);
+
+        fromButton = secondaryButton();
+        toButton = secondaryButton();
+        dates.addView(fromButton, weighted());
+        dates.addView(toButton, weighted());
+        fromButton.setOnClickListener(v -> pickDate(from, this::refreshDates));
+        toButton.setOnClickListener(v -> pickDate(to, this::refreshDates));
+
+        createButton = primaryButton("Allow photos and create video");
+        createButton.setOnClickListener(v -> startRouteBuild());
+        LinearLayout.LayoutParams createLp = new LinearLayout.LayoutParams(-1, dp(62));
+        createLp.setMargins(0, dp(16), 0, dp(16));
+        root.addView(createButton, createLp);
+
+        status = text("No upload. Photos are only read on this phone.", 16, 0xff475569, true);
+        root.addView(status);
+
+        mapView = new WebView(this);
+        WebSettings settings = mapView.getSettings();
+        settings.setJavaScriptEnabled(true);
+        settings.setDomStorageEnabled(true);
+        mapView.setWebViewClient(new WebViewClient());
+        mapView.loadDataWithBaseURL("https://exiftrail.local/", mapHtml(), "text/html", "UTF-8", null);
+        LinearLayout.LayoutParams routeLp = new LinearLayout.LayoutParams(-1, dp(560));
+        routeLp.setMargins(0, dp(20), 0, 0);
+        root.addView(mapView, routeLp);
+
+        return scroll;
+    }
+
+    private void startRouteBuild() {
+        if (from.after(to)) {
+            status.setText("Start date must be earlier than end date.");
+            return;
+        }
+        if (!hasPhotoPermission()) {
+            requestPermissions(photoPermissions(), REQ_PHOTOS);
+            return;
+        }
+        buildRoute();
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQ_PHOTOS && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            buildRoute();
+        } else {
+            status.setText("Photo permission is needed to scan your library by date.");
+        }
+    }
+
+    private void buildRoute() {
+        createButton.setEnabled(false);
+        status.setText("Scanning photos in the selected date range...");
+        points.clear();
+
+        new Thread(() -> {
+            ScanResult result = queryPhotos();
+            runOnUiThread(() -> {
+                createButton.setEnabled(true);
+                points.clear();
+                points.addAll(result.points);
+                if (points.size() < 2) {
+                    status.setText("Scanned " + result.total + " photos in range, found " + result.withGps + " with GPS. Try a wider range or enable camera location tags.");
+                } else {
+                    status.setText(points.size() + " route points found from " + result.total + " photos. Moving route preview is playing.");
+                    renderMapRoute(points);
+                }
+            });
+        }).start();
+    }
+
+    private ScanResult queryPhotos() {
+        List<RoutePoint> rows = new ArrayList<>();
+        int total = 0;
+        int withGps = 0;
+        String[] projection = {
+                MediaStore.Images.Media._ID,
+                MediaStore.Images.Media.DATE_TAKEN,
+                MediaStore.Images.Media.LATITUDE,
+                MediaStore.Images.Media.LONGITUDE
+        };
+        String selection = MediaStore.Images.Media.DATE_TAKEN + " BETWEEN ? AND ?";
+        String[] args = {String.valueOf(from.getTimeInMillis()), String.valueOf(to.getTimeInMillis())};
+        String order = MediaStore.Images.Media.DATE_TAKEN + " ASC";
+
+        try (Cursor cursor = getContentResolver().query(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                projection,
+                selection,
+                args,
+                order
+        )) {
+            if (cursor == null) return new ScanResult(rows, 0, 0);
+            int idCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID);
+            int dateCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_TAKEN);
+            int latCol = cursor.getColumnIndex(MediaStore.Images.Media.LATITUDE);
+            int lngCol = cursor.getColumnIndex(MediaStore.Images.Media.LONGITUDE);
+            while (cursor.moveToNext()) {
+                total += 1;
+                long id = cursor.getLong(idCol);
+                long taken = cursor.getLong(dateCol);
+                Uri uri = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id);
+                float[] latLng = readLatLngFromColumns(cursor, latCol, lngCol);
+                if (latLng == null) latLng = readLatLng(uri);
+                if (latLng == null) continue;
+                withGps += 1;
+                RoutePoint prev = rows.isEmpty() ? null : rows.get(rows.size() - 1);
+                if (prev != null && shouldSkip(prev, latLng[0], latLng[1], taken)) continue;
+                rows.add(new RoutePoint(latLng[0], latLng[1], taken));
+                if (total % 50 == 0) {
+                    int scanned = total;
+                    int gps = withGps;
+                    runOnUiThread(() -> status.setText("Scanning photos... " + scanned + " checked, " + gps + " with GPS"));
+                }
+            }
+        }
+        return new ScanResult(rows, total, withGps);
+    }
+
+    private boolean shouldSkip(RoutePoint prev, double lat, double lng, long taken) {
+        double distance = distanceKm(prev.lat, prev.lng, lat, lng);
+        if (distance < MIN_POINT_GAP_KM) return true;
+        double hours = Math.max((taken - prev.time) / 36e5, .01);
+        return distance / hours > MAX_REASONABLE_SPEED_KMH;
+    }
+
+    private float[] readLatLngFromColumns(Cursor cursor, int latCol, int lngCol) {
+        if (latCol < 0 || lngCol < 0 || cursor.isNull(latCol) || cursor.isNull(lngCol)) return null;
+        double lat = cursor.getDouble(latCol);
+        double lng = cursor.getDouble(lngCol);
+        if (lat == 0d && lng == 0d) return null;
+        return new float[]{(float) lat, (float) lng};
+    }
+
+    private float[] readLatLng(Uri uri) {
+        if (Build.VERSION.SDK_INT >= 29 && hasMediaLocationPermission()) {
+            float[] original = readOriginalLatLng(uri);
+            if (original != null) return original;
+        }
+        try (InputStream input = getContentResolver().openInputStream(uri)) {
+            if (input == null) return null;
+            ExifInterface exif = new ExifInterface(input);
+            float[] latLng = new float[2];
+            return exif.getLatLong(latLng) ? latLng : null;
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private float[] readOriginalLatLng(Uri uri) {
+        try (InputStream input = getContentResolver().openInputStream(MediaStore.setRequireOriginal(uri))) {
+            if (input == null) return null;
+            ExifInterface exif = new ExifInterface(input);
+            float[] latLng = new float[2];
+            return exif.getLatLong(latLng) ? latLng : null;
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private boolean hasPhotoPermission() {
+        if (Build.VERSION.SDK_INT >= 34 && checkSelfPermission(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) == PackageManager.PERMISSION_GRANTED) {
+            return true;
+        }
+        return checkSelfPermission(photoPermissions()[0]) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    private boolean hasMediaLocationPermission() {
+        return Build.VERSION.SDK_INT < 29 || checkSelfPermission(Manifest.permission.ACCESS_MEDIA_LOCATION) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    private String[] photoPermissions() {
+        if (Build.VERSION.SDK_INT >= 34) {
+            return new String[]{Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED, Manifest.permission.ACCESS_MEDIA_LOCATION};
+        }
+        if (Build.VERSION.SDK_INT >= 33) {
+            return new String[]{Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.ACCESS_MEDIA_LOCATION};
+        }
+        return new String[]{Manifest.permission.READ_EXTERNAL_STORAGE};
+    }
+
+    private void pickDate(Calendar target, Runnable afterPick) {
+        DatePickerDialog dialog = new DatePickerDialog(
+                this,
+                (DatePicker view, int year, int month, int dayOfMonth) -> {
+                    target.set(Calendar.YEAR, year);
+                    target.set(Calendar.MONTH, month);
+                    target.set(Calendar.DAY_OF_MONTH, dayOfMonth);
+                    if (target == to) {
+                        target.set(Calendar.HOUR_OF_DAY, 23);
+                        target.set(Calendar.MINUTE, 59);
+                        target.set(Calendar.SECOND, 59);
+                    } else {
+                        target.set(Calendar.HOUR_OF_DAY, 0);
+                        target.set(Calendar.MINUTE, 0);
+                        target.set(Calendar.SECOND, 0);
+                    }
+                    afterPick.run();
+                },
+                target.get(Calendar.YEAR),
+                target.get(Calendar.MONTH),
+                target.get(Calendar.DAY_OF_MONTH)
+        );
+        dialog.show();
+    }
+
+    private void refreshDates() {
+        fromButton.setText("From\n" + dateFormat.format(new Date(from.getTimeInMillis())));
+        toButton.setText("To\n" + dateFormat.format(new Date(to.getTimeInMillis())));
+    }
+
+    private TextView text(String value, int sp, int color, boolean bold) {
+        TextView view = new TextView(this);
+        view.setText(value);
+        view.setTextSize(sp);
+        view.setTextColor(color);
+        view.setLineSpacing(0, 1.08f);
+        if (bold) view.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        return view;
+    }
+
+    private Button primaryButton(String value) {
+        Button button = new Button(this);
+        button.setText(value);
+        button.setTextSize(18);
+        button.setTextColor(Color.WHITE);
+        button.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        button.setBackgroundColor(0xff0f172a);
+        return button;
+    }
+
+    private Button secondaryButton() {
+        Button button = new Button(this);
+        button.setTextSize(15);
+        button.setTextColor(0xff0f172a);
+        button.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        return button;
+    }
+
+    private LinearLayout.LayoutParams weighted() {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(64), 1);
+        lp.setMargins(dp(4), 0, dp(4), 0);
+        return lp;
+    }
+
+    private int dp(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
+    }
+
+    private void renderMapRoute(List<RoutePoint> route) {
+        StringBuilder json = new StringBuilder("[");
+        for (int i = 0; i < route.size(); i++) {
+            RoutePoint p = route.get(i);
+            if (i > 0) json.append(',');
+            json.append("{lat:").append(p.lat)
+                    .append(",lng:").append(p.lng)
+                    .append(",time:\"").append(mapDateFormat.format(new Date(p.time))).append("\"}");
+        }
+        json.append(']');
+        mapView.evaluateJavascript("renderRoute(" + json + ")", null);
+    }
+
+    private String mapHtml() {
+        return "<!doctype html><html><head>"
+                + "<meta name='viewport' content='width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no'>"
+                + "<link rel='stylesheet' href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'>"
+                + "<style>html,body,#map{height:100%;margin:0;background:#dbeafe}.leaflet-container{font:14px system-ui}.panel{position:absolute;z-index:500;left:14px;right:14px;top:14px;background:rgba(15,23,42,.9);color:white;padding:12px 14px;border-radius:16px;font:800 14px system-ui;box-shadow:0 14px 38px rgba(15,23,42,.24)}.panel small{display:block;margin-top:4px;color:#bfdbfe;font-weight:700}.progress{height:5px;margin-top:10px;background:rgba(255,255,255,.16);border-radius:999px;overflow:hidden}.bar{height:100%;width:0;background:#38bdf8;border-radius:999px}</style>"
+                + "</head><body><div id='map'></div><div class='panel'><span id='place'>Route preview appears here</span><small id='time'>Waiting for photo GPS points</small><div class='progress'><div class='bar' id='bar'></div></div></div>"
+                + "<script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></script>"
+                + "<script>"
+                + "var map=L.map('map',{zoomControl:false,attributionControl:true,preferCanvas:true});"
+                + "L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);"
+                + "map.setView([0,0],2);var full,line,marker,raf,lastPan=0;"
+                + "function ll(p){return [p.lat,p.lng]}"
+                + "function renderRoute(points){document.getElementById('place').textContent=points.length+' route points found';"
+                + "if(full)map.removeLayer(full);if(line)map.removeLayer(line);if(marker)map.removeLayer(marker);if(raf)cancelAnimationFrame(raf);"
+                + "var latlngs=points.map(ll);"
+                + "full=L.polyline(latlngs,{color:'rgba(15,23,42,.22)',weight:7,lineCap:'round',lineJoin:'round'}).addTo(map);"
+                + "line=L.polyline([], {color:'#0ea5e9',weight:7}).addTo(map);"
+                + "marker=L.circleMarker(ll(points[0]),{radius:10,color:'#fff',weight:4,fillColor:'#f97316',fillOpacity:1}).addTo(map);"
+                + "map.fitBounds(L.latLngBounds(latlngs),{padding:[54,34]});var start=0,duration=Math.min(28000,Math.max(8500,points.length*45));"
+                + "function step(ts){if(!start)start=ts;var t=Math.min((ts-start)/duration,1);var exact=(points.length-1)*t;var end=Math.max(1,Math.floor(exact));var visible=latlngs.slice(0,end+1);var cur=points[end];line.setLatLngs(visible);marker.setLatLng(ll(cur));document.getElementById('time').textContent=cur.time;document.getElementById('bar').style.width=(t*100).toFixed(1)+'%';if(ts-lastPan>550){map.panTo(ll(cur),{animate:true,duration:.45});lastPan=ts}if(t<1)raf=requestAnimationFrame(step)}"
+                + "raf=requestAnimationFrame(step)}"
+                + "</script></body></html>";
+    }
+
+    private static double distanceKm(double lat1, double lng1, double lat2, double lng2) {
+        double rad = Math.PI / 180;
+        double dLat = (lat2 - lat1) * rad;
+        double dLng = (lng2 - lng1) * rad;
+        double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
+                + Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+        return 6371 * 2 * Math.asin(Math.sqrt(a));
+    }
+
+    private static class RoutePoint {
+        final double lat;
+        final double lng;
+        final long time;
+
+        RoutePoint(double lat, double lng, long time) {
+            this.lat = lat;
+            this.lng = lng;
+            this.time = time;
+        }
+    }
+
+    private static class ScanResult {
+        final List<RoutePoint> points;
+        final int total;
+        final int withGps;
+
+        ScanResult(List<RoutePoint> points, int total, int withGps) {
+            this.points = points;
+            this.total = total;
+            this.withGps = withGps;
+        }
+    }
+
+}
