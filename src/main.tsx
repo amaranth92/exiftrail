@@ -195,7 +195,7 @@ function vehicleForPoint(points: PhotoPoint[], index: number): VehicleKind {
 }
 
 function vehicleModel(kind: VehicleKind) {
-  return `/assets/vehicles/${kind}/${kind}.glb`;
+  return `./assets/vehicles/${kind}/${kind}.glb`;
 }
 
 function vehicleLabel(kind: VehicleKind) {
