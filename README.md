@@ -38,15 +38,18 @@ npm run dev
 
 Open the local Vite URL, choose travel photos, review the route, then export a WebM.
 
-No sample photos are required to try the UI. Click **Load demo route** to preview the animation and export flow with in-memory demo points.
+No personal photos are required to try the UI:
 
-For a real EXIF parsing smoke test, use the synthetic GPS photos in `public/samples/`. They are generated test images, not personal photos.
+- Click **Load demo route** to preview the animation and export flow with in-memory demo points.
+- Click **Load sample EXIF photos** to run the same import path against synthetic GPS JPEG files in `public/samples/`. They are generated test images, not personal photos.
 
 ## MVP Status
 
 Done:
 
 - Multi-photo import
+- Folder import in browsers that support `webkitdirectory`
+- Synthetic sample EXIF photo import
 - EXIF GPS/time extraction
 - GPS-missing photo skip summary
 - Chronological route

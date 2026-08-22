@@ -131,6 +131,17 @@ function demoPoints(): PhotoPoint[] {
   ).points;
 }
 
+async function sampleFiles() {
+  const names = ["01-perth", "02-fremantle", "03-rottnest", "04-margaret-river", "05-albany"];
+  return Promise.all(
+    names.map(async (name) => {
+      const response = await fetch(`/samples/${name}.jpg`);
+      const blob = await response.blob();
+      return new File([blob], `${name}.jpg`, { type: "image/jpeg" });
+    }),
+  );
+}
+
 function project(points: PhotoPoint[], width: number, height: number) {
   const lats = points.map((point) => point.lat);
   const lngs = points.map((point) => point.lng);
@@ -340,10 +351,14 @@ function App() {
 
   async function onFiles(files: FileList | null) {
     if (!files) return;
+    await loadFiles([...files]);
+  }
+
+  async function loadFiles(files: File[]) {
     setBusy(true);
     setMessage("Reading EXIF locally. Nothing is uploaded.");
     points.forEach((point) => URL.revokeObjectURL(point.url));
-    const result = await readPhotos([...files]);
+    const result = await readPhotos(files);
     setPoints(result.points);
     setSummary(result.summary);
     setDay("all");
@@ -361,6 +376,11 @@ function App() {
     setDay("all");
     setProgress(1);
     setMessage("Demo route loaded. Real photos still stay local when you choose your own.");
+  }
+
+  async function loadSampleExif() {
+    setTripLabel("Western Australia sample EXIF route");
+    await loadFiles(await sampleFiles());
   }
 
   function play() {
@@ -399,6 +419,9 @@ function App() {
               Export WebM
             </button>
             <button disabled={busy} onClick={loadDemo}>Load demo route</button>
+            <button disabled={busy} onClick={() => loadSampleExif().catch((err) => setMessage(err.message))}>
+              Load sample EXIF photos
+            </button>
           </div>
           <p className="privacy">No upload by default. Original photos are never edited, moved, or deleted.</p>
         </div>
