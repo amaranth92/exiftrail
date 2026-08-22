@@ -54,6 +54,11 @@ h1 {
   gap: 12px;
 }
 
+.actions.minimal {
+  display: grid;
+  max-width: 520px;
+}
+
 .actions input {
   display: none;
 }
@@ -85,6 +90,34 @@ h1 {
   color: #075985;
   font-weight: 650;
   line-height: 1.45;
+}
+
+.date-range {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  max-width: 520px;
+  margin: 0 0 16px;
+}
+
+.date-range label {
+  display: grid;
+  gap: 6px;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.date-range input {
+  width: 100%;
+  min-height: 48px;
+  border: 1px solid #cbd5e1;
+  border-radius: 16px;
+  padding: 10px 12px;
+  background: #fff;
+  color: #0f172a;
+  font: inherit;
+  font-weight: 800;
 }
 
 button,
@@ -146,46 +179,8 @@ button:disabled {
   padding: 0 24px;
 }
 
-.controls {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-  gap: 12px;
-  margin: 12px 0 18px;
-  padding: 16px;
-  border: 1px solid #e2e8f0;
-  border-radius: 18px;
-  background: #fff;
-}
-
-.controls label {
-  display: grid;
-  gap: 7px;
-  color: #475569;
-  font-size: 13px;
-  font-weight: 800;
-}
-
-.controls input,
-.controls select {
-  width: 100%;
-  min-height: 42px;
-  border: 1px solid #cbd5e1;
-  border-radius: 12px;
-  padding: 9px 11px;
-  background: #fff;
-  color: #0f172a;
-  font: inherit;
-}
-
-.controls .check {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.controls .check input {
-  width: auto;
-  min-height: auto;
+.panel.compact {
+  max-width: 760px;
 }
 
 .stats {
@@ -201,52 +196,6 @@ button:disabled {
 
 .stats span {
   color: #475569;
-}
-
-.points {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 12px;
-}
-
-.point {
-  display: grid;
-  grid-template-columns: auto 76px minmax(0, 1fr);
-  gap: 12px;
-  align-items: center;
-  padding: 12px;
-  border: 1px solid #e2e8f0;
-  border-radius: 16px;
-  background: #fff;
-}
-
-.point img {
-  width: 76px;
-  height: 56px;
-  object-fit: cover;
-  border-radius: 10px;
-}
-
-.point b,
-.point small,
-.point em {
-  display: block;
-  overflow-wrap: anywhere;
-}
-
-.point small {
-  color: #64748b;
-}
-
-.point em {
-  color: #b45309;
-  font-style: normal;
-  font-weight: 800;
-}
-
-.suspicious {
-  border-color: #fed7aa;
-  background: #fff7ed;
 }
 
 @media (max-width: 840px) {
@@ -277,26 +226,16 @@ button:disabled {
 
   .actions {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
     gap: 10px;
   }
 
-  .actions .cta,
-  .actions button:nth-of-type(2) {
-    grid-column: 1 / -1;
-  }
-
   button,
-  .primary,
-  .desktop-only {
+  .primary {
     width: 100%;
     min-height: 52px;
     padding: 13px 14px;
     text-align: center;
-  }
-
-  .desktop-only {
-    display: none;
   }
 
   .phone {
@@ -311,18 +250,13 @@ button:disabled {
     padding: 0 16px 36px;
   }
 
-  .controls {
-    grid-template-columns: 1fr;
-    margin-top: 4px;
+  .date-range {
+    max-width: none;
   }
 
   .stats {
     display: grid;
     gap: 8px;
     margin: 16px 0;
-  }
-
-  .points {
-    grid-template-columns: 1fr;
   }
 }
