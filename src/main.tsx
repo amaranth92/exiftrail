@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import * as exifr from "exifr";
+import html2canvas from "html2canvas";
 import { normalizeRoute } from "./route";
 import "./styles.css";
 
@@ -35,6 +36,8 @@ const EXIF_CONCURRENCY = Math.max(4, Math.min(8, navigator.hardwareConcurrency |
 const ACCEPTED_IMAGES = "image/*,.jpg,.jpeg,.heic,.heif";
 
 const PHOTO_TYPES = new Set(["image/jpeg", "image/jpg", "image/heic", "image/heif"]);
+type VehicleKind = "car" | "boat" | "plane";
+
 function isPhoto(file: File) {
   const lower = file.name.toLowerCase();
   return PHOTO_TYPES.has(file.type) || /\.(jpe?g|heic|heif)$/.test(lower);
@@ -170,6 +173,44 @@ function extensionForMime(mime: string) {
   return mime.includes("mp4") ? "mp4" : "webm";
 }
 
+function distanceKm(a: PhotoPoint, b: PhotoPoint) {
+  const rad = Math.PI / 180;
+  const dLat = (b.lat - a.lat) * rad;
+  const dLng = (b.lng - a.lng) * rad;
+  const sinLat = Math.sin(dLat / 2);
+  const sinLng = Math.sin(dLng / 2);
+  const value = sinLat * sinLat + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * sinLng * sinLng;
+  return 6371 * 2 * Math.asin(Math.sqrt(value));
+}
+
+function vehicleForPoint(points: PhotoPoint[], index: number): VehicleKind {
+  if (index <= 0) return "car";
+  const previous = points[index - 1];
+  const current = points[index];
+  const hours = Math.max((+current.time - +previous.time) / 3_600_000, 1 / 60);
+  const speed = distanceKm(previous, current) / hours;
+  if (speed >= 220) return "plane";
+  if (speed >= 8 && speed < 40) return "boat";
+  return "car";
+}
+
+function vehicleModel(kind: VehicleKind) {
+  return `/assets/vehicles/${kind}/${kind}.glb`;
+}
+
+function vehicleLabel(kind: VehicleKind) {
+  return kind === "plane" ? "air" : kind;
+}
+
+function vehicleIcon(kind: VehicleKind) {
+  return L.divIcon({
+    className: "vehicle-marker",
+    iconSize: [72, 72],
+    iconAnchor: [36, 36],
+    html: `<model-viewer src="${vehicleModel(kind)}" camera-controls="false" disable-zoom autoplay shadow-intensity="0.35" alt="${vehicleLabel(kind)}"></model-viewer>`,
+  });
+}
+
 function downloadBlob(blob: Blob, filename: string) {
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
@@ -185,12 +226,16 @@ async function shareOrDownloadVideo(result: ExportResult) {
     share?: (data: { files: File[]; title: string; text: string }) => Promise<void>;
   };
   if (share.canShare?.({ files: [file] }) && share.share) {
-    await share.share({
-      files: [file],
-      title: "ExifTrail route video",
-      text: "Travel route rebuilt from local photo metadata.",
-    });
-    return;
+    try {
+      await share.share({
+        files: [file],
+        title: "ExifTrail route video",
+        text: "Travel route rebuilt from local photo metadata.",
+      });
+      return;
+    } catch {
+      // Some embedded browsers reject the share sheet; keep download as the reliable fallback.
+    }
   }
   downloadBlob(result.blob, result.filename);
 }
@@ -209,8 +254,17 @@ async function exportVideo(points: PhotoPoint[], tripLabel: string): Promise<Exp
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Canvas is not available.");
 
-  const route = project(active, canvas.width, 1220);
+  const route = project(active, canvas.width, 860);
   const thumbs = await Promise.all(active.slice(0, 8).map((point) => loadImage(point.url)));
+  const mapElement = document.querySelector<HTMLElement>(".map");
+  const mapImage = mapElement
+    ? await html2canvas(mapElement, {
+        backgroundColor: "#dbeafe",
+        imageTimeout: 15_000,
+        logging: false,
+        useCORS: true,
+      })
+    : null;
   const stream = canvas.captureStream(30);
   const options = mime ? { mimeType: mime } : undefined;
   const recorder = new MediaRecorder(stream, options);
@@ -221,7 +275,7 @@ async function exportVideo(points: PhotoPoint[], tripLabel: string): Promise<Exp
   const frames = 270;
   for (let frame = 0; frame < frames; frame += 1) {
     const t = frame / (frames - 1);
-    drawVideoFrame(ctx, canvas, route, thumbs, t, tripLabel);
+    drawVideoFrame(ctx, canvas, route, active, thumbs, mapImage, t, tripLabel);
     await new Promise((resolve) => requestAnimationFrame(resolve));
   }
   recorder.stop();
@@ -236,26 +290,34 @@ function drawVideoFrame(
   ctx: CanvasRenderingContext2D,
   canvas: HTMLCanvasElement,
   route: Array<PhotoPoint & { x: number; y: number }>,
+  points: PhotoPoint[],
   thumbs: HTMLImageElement[],
+  mapImage: HTMLCanvasElement | null,
   t: number,
   tripLabel: string,
 ) {
   ctx.fillStyle = "#0b1020";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  ctx.strokeStyle = "rgba(148, 163, 184, .16)";
-  ctx.lineWidth = 2;
-  for (let x = 90; x < canvas.width; x += 90) {
-    ctx.beginPath();
-    ctx.moveTo(x, 0);
-    ctx.lineTo(x, 1320);
-    ctx.stroke();
-  }
-  for (let y = 90; y < 1320; y += 90) {
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(canvas.width, y);
-    ctx.stroke();
+  if (mapImage) {
+    ctx.drawImage(mapImage, 0, 220, canvas.width, 860);
+  } else {
+    ctx.fillStyle = "#dbeafe";
+    ctx.fillRect(0, 220, canvas.width, 860);
+    ctx.strokeStyle = "rgba(148, 163, 184, .24)";
+    ctx.lineWidth = 2;
+    for (let x = 0; x < canvas.width; x += 90) {
+      ctx.beginPath();
+      ctx.moveTo(x, 220);
+      ctx.lineTo(x, 1080);
+      ctx.stroke();
+    }
+    for (let y = 220; y < 1080; y += 90) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(canvas.width, y);
+      ctx.stroke();
+    }
   }
 
   ctx.font = "700 62px Inter, system-ui";
@@ -265,23 +327,24 @@ function drawVideoFrame(
   ctx.fillStyle = "#94a3b8";
   ctx.fillText(tripLabel || "Travel route rebuilt from local photo metadata", 72, 174);
 
-  ctx.strokeStyle = "rgba(255,255,255,.18)";
+  ctx.save();
+  ctx.translate(0, 220);
+  ctx.strokeStyle = "rgba(15,23,42,.26)";
   ctx.lineWidth = 12;
   ctx.lineJoin = "round";
   drawPolyline(ctx, route, 1);
 
-  ctx.strokeStyle = "#38bdf8";
+  ctx.strokeStyle = "#0ea5e9";
   ctx.lineWidth = 14;
-  ctx.shadowBlur = 24;
-  ctx.shadowColor = "#38bdf8";
+  ctx.shadowBlur = 18;
+  ctx.shadowColor = "#0ea5e9";
   drawPolyline(ctx, route, t);
   ctx.shadowBlur = 0;
 
-  const current = route[Math.min(route.length - 1, Math.floor(t * route.length))];
-  ctx.fillStyle = "#f59e0b";
-  ctx.beginPath();
-  ctx.arc(current.x, current.y, 22, 0, Math.PI * 2);
-  ctx.fill();
+  const currentIndex = Math.min(route.length - 1, Math.floor(t * route.length));
+  const current = route[currentIndex];
+  drawVehicle(ctx, current.x, current.y, vehicleForPoint(points, currentIndex));
+  ctx.restore();
 
   ctx.fillStyle = "#111827";
   ctx.fillRect(0, 1320, canvas.width, 600);
@@ -304,6 +367,26 @@ function drawVideoFrame(
   });
 }
 
+function drawVehicle(ctx: CanvasRenderingContext2D, x: number, y: number, kind: VehicleKind) {
+  const colors: Record<VehicleKind, string> = { car: "#fb7185", boat: "#14b8a6", plane: "#8b5cf6" };
+  const symbols: Record<VehicleKind, string> = { car: "CAR", boat: "BOAT", plane: "AIR" };
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.fillStyle = "rgba(15,23,42,.25)";
+  ctx.beginPath();
+  ctx.ellipse(0, 24, 38, 11, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = colors[kind];
+  ctx.beginPath();
+  ctx.roundRect(-34, -18, 68, 34, 12);
+  ctx.fill();
+  ctx.fillStyle = "#fff";
+  ctx.font = "700 16px Inter, system-ui";
+  ctx.textAlign = "center";
+  ctx.fillText(symbols[kind], 0, 5);
+  ctx.restore();
+}
+
 function drawPolyline(ctx: CanvasRenderingContext2D, route: Array<{ x: number; y: number }>, progress: number) {
   const last = Math.max(1, Math.floor((route.length - 1) * progress));
   ctx.beginPath();
@@ -320,7 +403,7 @@ function RouteMap({ points, progress }: { points: PhotoPoint[]; progress: number
   const divRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const routeRef = useRef<L.Polyline | null>(null);
-  const markerRef = useRef<L.CircleMarker | null>(null);
+  const markerRef = useRef<L.Marker | null>(null);
 
   useEffect(() => {
     if (!divRef.current || mapRef.current) return;
@@ -330,7 +413,7 @@ function RouteMap({ points, progress }: { points: PhotoPoint[]; progress: number
       maxZoom: 19,
     }).addTo(mapRef.current);
     routeRef.current = L.polyline([], { color: "#0ea5e9", weight: 5 }).addTo(mapRef.current);
-    markerRef.current = L.circleMarker([0, 0], { radius: 8, color: "#f97316", fillOpacity: 1 }).addTo(mapRef.current);
+    markerRef.current = L.marker([0, 0], { icon: vehicleIcon("car"), interactive: false }).addTo(mapRef.current);
   }, []);
 
   useEffect(() => {
@@ -343,7 +426,9 @@ function RouteMap({ points, progress }: { points: PhotoPoint[]; progress: number
     const latLngs = active.map((point) => L.latLng(point.lat, point.lng));
     const visible = latLngs.slice(0, Math.max(1, Math.ceil(latLngs.length * progress)));
     route.setLatLngs(visible);
+    const currentIndex = Math.min(active.length - 1, Math.max(0, Math.ceil(active.length * progress) - 1));
     marker.setLatLng(visible.at(-1)!);
+    marker.setIcon(vehicleIcon(vehicleForPoint(active, currentIndex)));
     map.fitBounds(L.latLngBounds(latLngs), { padding: [30, 30] });
   }, [points, progress]);
 

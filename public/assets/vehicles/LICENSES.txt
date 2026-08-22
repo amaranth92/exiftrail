@@ -1,0 +1,19 @@
+Vehicle assets used by ExifTrail
+
+car.glb
+  Source: Kenney Car Kit 3.1
+  License: Creative Commons Zero (CC0)
+  https://kenney.nl/assets/car-kit
+
+boat.glb
+  Source: Kenney Watercraft Kit 2.1
+  License: Creative Commons Zero (CC0)
+  https://kenney.nl/assets/watercraft-kit
+
+plane.glb
+  Source: Airplane-2 by get3dmodels.com
+  License: CC-BY
+  https://www.getglb.com/vehicles/airplane-low-poly-2/
+  https://creativecommons.org/licenses/by/4.0/
+
+The model files are used as small route markers. The rest of ExifTrail is MIT licensed.

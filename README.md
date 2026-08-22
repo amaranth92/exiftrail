@@ -21,6 +21,7 @@ Sample export from generated test photos: [`public/demo/exiftrail-sample-route.w
 - Flags suspicious GPS jumps.
 - Shows the route on OpenStreetMap via Leaflet.
 - Automatically plays a moving route preview with a marker traveling through the route in photo time order.
+- Switches the moving marker between a car, boat, and airplane using estimated segment speed.
 - Exports a vertical 9:16 route video for Shorts, TikTok, Instagram, Reddit, or Threads.
 - Uses the native share sheet when the browser supports sharing generated video files.
 
@@ -49,7 +50,11 @@ Open ExifTrail on the phone, choose From/To, then tap **Allow photos and create 
 
 Tap **Save moving video** after the route is created. The Android app renders a vertical MP4 and saves it to the phone gallery under `Movies/ExifTrail`.
 
-Map note: ExifTrail uses Leaflet + OpenStreetMap tiles. It does not bulk-prefetch map tiles; it only loads visible map tiles while previewing the route.
+The saved video keeps the visible Leaflet/OpenStreetMap map in each frame, then draws the active route and moving vehicle over it. A fallback grid is used only if the map cannot be captured before export finishes.
+
+Map note: ExifTrail uses Leaflet + OpenStreetMap tiles. It does not bulk-prefetch map tiles; it only loads visible map tiles while previewing or exporting. Keep the required attribution visible and follow the [OpenStreetMap tile policy](https://operations.osmfoundation.org/policies/tiles/).
+
+Vehicle assets are listed in `public/assets/vehicles/LICENSES.txt` and are copied into the Android app assets as well. The Kenney car and boat models are CC0; the airplane model is CC-BY and its source is recorded in that file.
 
 ### Web Demo
 

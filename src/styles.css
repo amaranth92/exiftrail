@@ -166,6 +166,20 @@ button:disabled {
   height: 100%;
 }
 
+.vehicle-marker {
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+}
+
+.vehicle-marker model-viewer {
+  width: 72px;
+  height: 72px;
+  --poster-color: transparent;
+  pointer-events: none;
+}
+
 .empty {
   display: grid;
   place-items: center;
