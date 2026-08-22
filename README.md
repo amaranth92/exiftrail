@@ -13,6 +13,9 @@ I wanted to try the viral travel timeline videos, but I never enabled Google Tim
 - Sorts photo points chronologically.
 - Removes very close duplicate points.
 - Flags suspicious GPS jumps.
+- Filters the route by date segment.
+- Lets you add a local trip/city label for the exported story.
+- Can soften exported coordinates or hide the first and last stop before export.
 - Shows the route on OpenStreetMap via Leaflet.
 - Plays a route animation preview.
 - Exports a vertical 9:16 WebM route video for Shorts, TikTok, Instagram, or Reddit.
@@ -24,6 +27,7 @@ I wanted to try the viral travel timeline videos, but I never enabled Google Tim
 - Original photos are never edited, moved, renamed, or deleted.
 - EXIF metadata is used only in memory for the current session.
 - Export uses only the route points and thumbnails you reviewed.
+- Privacy controls can round route coordinates and drop the first/last stop before export.
 
 ## Run Locally
 
@@ -34,6 +38,8 @@ npm run dev
 
 Open the local Vite URL, choose travel photos, review the route, then export a WebM.
 
+No sample photos are required to try the UI. Click **Load demo route** to preview the animation and export flow with in-memory demo points.
+
 ## MVP Status
 
 Done:
@@ -42,8 +48,10 @@ Done:
 - EXIF GPS/time extraction
 - GPS-missing photo skip summary
 - Chronological route
+- Date segment filter
 - Near-duplicate cleanup
 - Suspicious jump warning
+- Basic privacy scrubber
 - Leaflet/OpenStreetMap preview
 - Animation preview
 - 1080x1920 WebM export
@@ -51,11 +59,11 @@ Done:
 Later:
 
 - More reliable HEIC support across browsers
-- Reverse geocoding
+- Optional reverse geocoding, only after clear user consent because it sends coordinates to a lookup service
 - Music
 - More visual templates
 - GPX/KML export
-- Advanced privacy scrubber
+- Richer privacy scrubber
 
 ## Share Copy
 

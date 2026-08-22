@@ -26,6 +26,8 @@ type ScanSummary = {
   suspicious: number;
 };
 
+type PrivacyMode = "exact" | "rounded";
+
 const PHOTO_TYPES = new Set(["image/jpeg", "image/jpg", "image/heic", "image/heif"]);
 function isPhoto(file: File) {
   const lower = file.name.toLowerCase();
@@ -83,6 +85,50 @@ function formatDate(date: Date) {
   return new Intl.DateTimeFormat("en", { month: "short", day: "2-digit", year: "numeric" }).format(date);
 }
 
+function dayKey(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function displayPoint(point: PhotoPoint, privacyMode: PrivacyMode): PhotoPoint {
+  if (privacyMode === "exact") return point;
+  return { ...point, lat: Number(point.lat.toFixed(2)), lng: Number(point.lng.toFixed(2)) };
+}
+
+function applyPrivacy(points: PhotoPoint[], privacyMode: PrivacyMode, trimEnds: boolean) {
+  const trimmed = trimEnds && points.length > 4 ? points.slice(1, -1) : points;
+  return trimmed.map((point) => displayPoint(point, privacyMode));
+}
+
+function svgThumb(label: string, color: string) {
+  return `data:image/svg+xml,${encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="220"><rect width="320" height="220" fill="${color}"/><text x="28" y="120" font-family="Arial" font-size="34" fill="white" font-weight="700">${label}</text></svg>`,
+  )}`;
+}
+
+function demoPoints(): PhotoPoint[] {
+  const rows = [
+    ["Perth", -31.9523, 115.8613, "2024-02-01T09:00:00Z", "#0ea5e9"],
+    ["Fremantle", -32.0569, 115.7439, "2024-02-01T13:30:00Z", "#14b8a6"],
+    ["Rottnest", -32.006, 115.512, "2024-02-02T10:15:00Z", "#f59e0b"],
+    ["Margaret River", -33.9536, 115.0739, "2024-02-03T16:10:00Z", "#ef4444"],
+    ["Albany", -35.0269, 117.8837, "2024-02-05T11:20:00Z", "#8b5cf6"],
+  ] as const;
+
+  return normalizeRoute(
+    rows.map(([name, lat, lng, time, color], index) => ({
+      id: `demo-${index}`,
+      name: `${name}.jpg`,
+      lat,
+      lng,
+      time: new Date(time),
+      url: svgThumb(name, color),
+      enabled: true,
+      distanceFromPrevKm: 0,
+      suspicious: false,
+    })),
+  ).points;
+}
+
 function project(points: PhotoPoint[], width: number, height: number) {
   const lats = points.map((point) => point.lat);
   const lngs = points.map((point) => point.lng);
@@ -108,7 +154,7 @@ async function loadImage(src: string) {
   return img;
 }
 
-async function exportWebm(points: PhotoPoint[]) {
+async function exportWebm(points: PhotoPoint[], tripLabel: string) {
   const active = points.filter((point) => point.enabled && !point.suspicious);
   if (active.length < 2) throw new Error("Need at least two valid route points.");
 
@@ -130,7 +176,7 @@ async function exportWebm(points: PhotoPoint[]) {
   const frames = 270;
   for (let frame = 0; frame < frames; frame += 1) {
     const t = frame / (frames - 1);
-    drawVideoFrame(ctx, canvas, route, thumbs, t);
+    drawVideoFrame(ctx, canvas, route, thumbs, t, tripLabel);
     await new Promise((resolve) => requestAnimationFrame(resolve));
   }
   recorder.stop();
@@ -150,6 +196,7 @@ function drawVideoFrame(
   route: Array<PhotoPoint & { x: number; y: number }>,
   thumbs: HTMLImageElement[],
   t: number,
+  tripLabel: string,
 ) {
   ctx.fillStyle = "#0b1020";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -174,7 +221,7 @@ function drawVideoFrame(
   ctx.fillText("ExifTrail", 72, 120);
   ctx.font = "34px Inter, system-ui";
   ctx.fillStyle = "#94a3b8";
-  ctx.fillText("Travel route rebuilt from local photo metadata", 72, 174);
+  ctx.fillText(tripLabel || "Travel route rebuilt from local photo metadata", 72, 174);
 
   ctx.strokeStyle = "rgba(255,255,255,.18)";
   ctx.lineWidth = 12;
@@ -268,13 +315,26 @@ function App() {
   const [progress, setProgress] = useState(1);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("Choose travel photos to rebuild a route locally.");
+  const [day, setDay] = useState("all");
+  const [tripLabel, setTripLabel] = useState("My travel route");
+  const [privacyMode, setPrivacyMode] = useState<PrivacyMode>("exact");
+  const [trimEnds, setTrimEnds] = useState(false);
 
   useEffect(() => () => points.forEach((point) => URL.revokeObjectURL(point.url)), [points]);
   useEffect(() => {
     folderInputRef.current?.setAttribute("webkitdirectory", "");
   }, []);
 
-  const active = useMemo(() => points.filter((point) => point.enabled && !point.suspicious), [points]);
+  const days = useMemo(() => Array.from(new Set(points.map((point) => dayKey(point.time)))), [points]);
+  const filtered = useMemo(
+    () => points.filter((point) => day === "all" || dayKey(point.time) === day),
+    [day, points],
+  );
+  const privatePoints = useMemo(
+    () => applyPrivacy(filtered, privacyMode, trimEnds),
+    [filtered, privacyMode, trimEnds],
+  );
+  const active = useMemo(() => privatePoints.filter((point) => point.enabled && !point.suspicious), [privatePoints]);
 
   async function onFiles(files: FileList | null) {
     if (!files) return;
@@ -284,9 +344,21 @@ function App() {
     const result = await readPhotos([...files]);
     setPoints(result.points);
     setSummary(result.summary);
+    setDay("all");
     setProgress(1);
     setBusy(false);
     setMessage(result.points.length ? "Route ready. Review points before export." : "No GPS-tagged photos found.");
+  }
+
+  function loadDemo() {
+    points.forEach((point) => point.url.startsWith("blob:") && URL.revokeObjectURL(point.url));
+    const demo = demoPoints();
+    setPoints(demo);
+    setSummary({ total: demo.length, withGps: demo.length, withoutGps: 0, duplicates: 0, suspicious: 0 });
+    setTripLabel("Western Australia demo route");
+    setDay("all");
+    setProgress(1);
+    setMessage("Demo route loaded. Real photos still stay local when you choose your own.");
   }
 
   function play() {
@@ -321,29 +393,54 @@ function App() {
               <input ref={folderInputRef} type="file" multiple accept="image/jpeg,image/heic,image/heif" onChange={(e) => onFiles(e.target.files)} />
             </label>
             <button disabled={active.length < 2 || busy} onClick={play}>Preview animation</button>
-            <button disabled={active.length < 2 || busy} onClick={() => exportWebm(points).catch((err) => setMessage(err.message))}>
+            <button disabled={active.length < 2 || busy} onClick={() => exportWebm(privatePoints, tripLabel).catch((err) => setMessage(err.message))}>
               Export WebM
             </button>
+            <button disabled={busy} onClick={loadDemo}>Load demo route</button>
           </div>
           <p className="privacy">No upload by default. Original photos are never edited, moved, or deleted.</p>
         </div>
         <div className="phone">
-          {active.length > 1 ? <RouteMap points={points} progress={progress} /> : <div className="empty">Route preview appears here</div>}
+          {active.length > 1 ? <RouteMap points={privatePoints} progress={progress} /> : <div className="empty">Route preview appears here</div>}
         </div>
       </section>
 
       <section className="panel">
+        <div className="controls" aria-label="Route controls">
+          <label>
+            Trip or city label
+            <input value={tripLabel} onChange={(e) => setTripLabel(e.target.value)} maxLength={60} />
+          </label>
+          <label>
+            Date segment
+            <select value={day} onChange={(e) => setDay(e.target.value)}>
+              <option value="all">All days</option>
+              {days.map((value) => <option value={value} key={value}>{value}</option>)}
+            </select>
+          </label>
+          <label>
+            Location privacy
+            <select value={privacyMode} onChange={(e) => setPrivacyMode(e.target.value as PrivacyMode)}>
+              <option value="exact">Exact coordinates</option>
+              <option value="rounded">Soften to about 1 km</option>
+            </select>
+          </label>
+          <label className="check">
+            <input type="checkbox" checked={trimEnds} onChange={(e) => setTrimEnds(e.target.checked)} />
+            Hide first and last stop
+          </label>
+        </div>
         <div className="stats">
           <strong>{message}</strong>
           {summary && (
             <span>
-              {summary.withGps}/{summary.total} with GPS · {summary.withoutGps} skipped · {summary.duplicates} near-duplicates ·{" "}
+              {active.length} export points · {days.length || 0} day segments · {summary.withGps}/{summary.total} with GPS · {summary.withoutGps} skipped · {summary.duplicates} near-duplicates ·{" "}
               {summary.suspicious} jump warnings
             </span>
           )}
         </div>
         <div className="points">
-          {points.map((point) => (
+          {filtered.map((point) => (
             <label className={point.suspicious ? "point suspicious" : "point"} key={point.id}>
               <input
                 type="checkbox"
