@@ -54,6 +54,17 @@ h1 {
   gap: 12px;
 }
 
+.actions input {
+  display: none;
+}
+
+.cta {
+  min-width: min(100%, 260px);
+  justify-content: center;
+  text-align: center;
+  box-shadow: 0 16px 34px rgba(15, 23, 42, .2);
+}
+
 .consent {
   display: grid;
   gap: 6px;
@@ -77,7 +88,8 @@ h1 {
 }
 
 button,
-.primary {
+.primary,
+.desktop-only {
   min-height: 48px;
   border: 1px solid #cbd5e1;
   border-radius: 999px;
@@ -98,10 +110,6 @@ button:disabled {
   background: #0f172a;
   color: #fff;
   border-color: #0f172a;
-}
-
-.primary input {
-  display: none;
 }
 
 .privacy {
@@ -242,17 +250,79 @@ button:disabled {
 }
 
 @media (max-width: 840px) {
+  body {
+    background: #ffffff;
+  }
+
   .hero {
     grid-template-columns: 1fr;
-    padding-top: 28px;
+    gap: 22px;
+    padding: 24px 16px 20px;
+  }
+
+  .eyebrow {
+    font-size: 12px;
+    margin-bottom: 10px;
+  }
+
+  h1 {
+    font-size: clamp(54px, 18vw, 76px);
+  }
+
+  .lead {
+    margin: 16px 0;
+    font-size: clamp(20px, 6vw, 28px);
+    line-height: 1.08;
+  }
+
+  .actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .actions .cta,
+  .actions button:nth-of-type(2) {
+    grid-column: 1 / -1;
+  }
+
+  button,
+  .primary,
+  .desktop-only {
+    width: 100%;
+    min-height: 52px;
+    padding: 13px 14px;
+    text-align: center;
+  }
+
+  .desktop-only {
+    display: none;
   }
 
   .phone {
     margin: 0 auto;
-    max-height: 72vh;
+    width: min(100%, 360px);
+    max-height: 58vh;
+    border-width: 8px;
+    border-radius: 34px;
+  }
+
+  .panel {
+    padding: 0 16px 36px;
+  }
+
+  .controls {
+    grid-template-columns: 1fr;
+    margin-top: 4px;
   }
 
   .stats {
     display: grid;
+    gap: 8px;
+    margin: 16px 0;
+  }
+
+  .points {
+    grid-template-columns: 1fr;
   }
 }

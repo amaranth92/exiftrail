@@ -30,6 +30,7 @@ type ScanSummary = {
 type PrivacyMode = "exact" | "rounded";
 type RouteScope = "recent" | "all";
 type ScanProgress = { done: number; total: number };
+type ExportResult = { blob: Blob; filename: string };
 
 type FileSystemDirectoryHandleLike = {
   kind: "directory";
@@ -45,6 +46,7 @@ type FileSystemFileHandleLike = {
 
 const RECENT_WINDOW_DAYS = 90;
 const EXIF_CONCURRENCY = Math.max(4, Math.min(8, navigator.hardwareConcurrency || 4));
+const ACCEPTED_IMAGES = "image/*,.jpg,.jpeg,.heic,.heif";
 
 const PHOTO_TYPES = new Set(["image/jpeg", "image/jpg", "image/heic", "image/heif"]);
 function isPhoto(file: File) {
@@ -235,9 +237,54 @@ async function loadImage(src: string) {
   return img;
 }
 
-async function exportWebm(points: PhotoPoint[], tripLabel: string) {
+function videoMime() {
+  if (!("MediaRecorder" in window)) return null;
+  const types = [
+    "video/mp4;codecs=h264",
+    "video/mp4",
+    "video/webm;codecs=vp9",
+    "video/webm;codecs=vp8",
+    "video/webm",
+  ];
+  return types.find((type) => MediaRecorder.isTypeSupported(type)) || "";
+}
+
+function extensionForMime(mime: string) {
+  return mime.includes("mp4") ? "mp4" : "webm";
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+async function shareOrDownloadVideo(result: ExportResult) {
+  const file = new File([result.blob], result.filename, { type: result.blob.type });
+  const share = navigator as Navigator & {
+    canShare?: (data: { files: File[] }) => boolean;
+    share?: (data: { files: File[]; title: string; text: string }) => Promise<void>;
+  };
+  if (share.canShare?.({ files: [file] }) && share.share) {
+    await share.share({
+      files: [file],
+      title: "ExifTrail route video",
+      text: "Travel route rebuilt from local photo metadata.",
+    });
+    return;
+  }
+  downloadBlob(result.blob, result.filename);
+}
+
+async function exportVideo(points: PhotoPoint[], tripLabel: string): Promise<ExportResult> {
   const active = points.filter((point) => point.enabled && !point.suspicious);
   if (active.length < 2) throw new Error("Need at least two valid route points.");
+  const mime = videoMime();
+  if (mime === null) {
+    throw new Error("This browser cannot record video from canvas. Try Chrome on Android/desktop, or Safari 17+.");
+  }
 
   const canvas = document.createElement("canvas");
   canvas.width = 1080;
@@ -248,7 +295,7 @@ async function exportWebm(points: PhotoPoint[], tripLabel: string) {
   const route = project(active, canvas.width, 1220);
   const thumbs = await Promise.all(active.slice(0, 8).map((point) => loadImage(point.url)));
   const stream = canvas.captureStream(30);
-  const options = MediaRecorder.isTypeSupported("video/webm") ? { mimeType: "video/webm" } : undefined;
+  const options = mime ? { mimeType: mime } : undefined;
   const recorder = new MediaRecorder(stream, options);
   const chunks: Blob[] = [];
   recorder.ondataavailable = (event) => event.data.size && chunks.push(event.data);
@@ -263,12 +310,9 @@ async function exportWebm(points: PhotoPoint[], tripLabel: string) {
   recorder.stop();
   await new Promise((resolve) => (recorder.onstop = resolve));
 
-  const blob = new Blob(chunks, { type: "video/webm" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = "exiftrail-route.webm";
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  const type = recorder.mimeType || mime || "video/webm";
+  const blob = new Blob(chunks, { type });
+  return { blob, filename: `exiftrail-route.${extensionForMime(type)}` };
 }
 
 function drawVideoFrame(
@@ -402,6 +446,7 @@ function App() {
   const [trimEnds, setTrimEnds] = useState(false);
   const [routeScope, setRouteScope] = useState<RouteScope>("recent");
   const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => () => points.forEach((point) => URL.revokeObjectURL(point.url)), [points]);
   useEffect(() => {
@@ -443,6 +488,20 @@ function App() {
     setBusy(false);
     setScanProgress(null);
     setMessage(result.points.length ? "Route ready. Review points before export." : "No GPS-tagged photos found.");
+  }
+
+  async function saveVideo() {
+    setExporting(true);
+    setMessage("Rendering a vertical route video on this device...");
+    try {
+      const result = await exportVideo(privatePoints, tripLabel);
+      await shareOrDownloadVideo(result);
+      setMessage("Video ready. Share it to Reels, TikTok, Shorts, Reddit, or Threads.");
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Video export failed.");
+    } finally {
+      setExporting(false);
+    }
   }
 
   async function askAndScanLibrary() {
@@ -496,35 +555,34 @@ function App() {
           <p className="eyebrow">Local-first travel timeline generator</p>
           <h1>ExifTrail</h1>
           <p className="lead">
-            Rebuild a viral travel route video from your own photo EXIF GPS and timestamps. No Google
-            location history required.
+            Select travel photos on your phone. ExifTrail rebuilds the route locally and exports a vertical video.
           </p>
           <div className="consent">
-            <b>Want to use your recent photos automatically?</b>
+            <b>Can ExifTrail read your photos to build the route?</b>
             <span>
-              Pick your photo library folder once. The app scans it locally, sorts GPS-tagged photos by capture time,
-              and starts with the latest {RECENT_WINDOW_DAYS} days so you do not have to choose photos one by one.
+              You choose the photos or a folder first. The app reads GPS and timestamps on this device only, then starts
+              with the latest {RECENT_WINDOW_DAYS} days automatically.
             </span>
           </div>
           <div className="actions">
-            <button className="primary" disabled={busy} onClick={() => askAndScanLibrary().catch((err) => setMessage(err.message || "Photo library scan was cancelled."))}>
-              Scan my photo library
-            </button>
-            <label className="primary">
-              Choose photos
-              <input type="file" multiple accept="image/jpeg,image/heic,image/heif" onChange={(e) => onFiles(e.target.files)} />
+            <label className="primary cta">
+              Select travel photos
+              <input type="file" multiple accept={ACCEPTED_IMAGES} onChange={(e) => onFiles(e.target.files)} />
             </label>
-            <label className="primary">
+            <button disabled={active.length < 2 || busy} onClick={play}>Preview</button>
+            <button className="primary" disabled={active.length < 2 || busy || exporting} onClick={saveVideo}>
+              {exporting ? "Rendering..." : "Save / share video"}
+            </button>
+            <label className="desktop-only">
               Choose folder
-              <input ref={folderInputRef} type="file" multiple accept="image/jpeg,image/heic,image/heif" onChange={(e) => onFiles(e.target.files)} />
+              <input ref={folderInputRef} type="file" multiple accept={ACCEPTED_IMAGES} onChange={(e) => onFiles(e.target.files)} />
             </label>
-            <button disabled={active.length < 2 || busy} onClick={play}>Preview animation</button>
-            <button disabled={active.length < 2 || busy} onClick={() => exportWebm(privatePoints, tripLabel).catch((err) => setMessage(err.message))}>
-              Export WebM
+            <button className="desktop-only" disabled={busy} onClick={() => askAndScanLibrary().catch((err) => setMessage(err.message || "Photo library scan was cancelled."))}>
+              Scan folder
             </button>
-            <button disabled={busy} onClick={loadDemo}>Load demo route</button>
+            <button disabled={busy} onClick={loadDemo}>Try demo</button>
             <button disabled={busy} onClick={() => loadSampleExif().catch((err) => setMessage(err.message))}>
-              Load sample EXIF photos
+              Test EXIF sample
             </button>
           </div>
           <p className="privacy">No upload by default. Original photos are never edited, moved, or deleted.</p>

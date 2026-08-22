@@ -12,6 +12,7 @@ Sample export from generated test photos: [`public/demo/exiftrail-sample-route.w
 
 ## What It Does
 
+- Lets mobile users select travel photos from the phone photo picker.
 - Asks you to choose a photo library folder before scanning anything.
 - Recursively scans the selected folder for photos, so you do not have to pick images one by one.
 - Reads JPG/JPEG/HEIC/HEIF photo metadata in the browser.
@@ -25,7 +26,8 @@ Sample export from generated test photos: [`public/demo/exiftrail-sample-route.w
 - Can soften exported coordinates or hide the first and last stop before export.
 - Shows the route on OpenStreetMap via Leaflet.
 - Plays a route animation preview.
-- Exports a vertical 9:16 WebM route video for Shorts, TikTok, Instagram, or Reddit.
+- Exports a vertical 9:16 route video for Shorts, TikTok, Instagram, Reddit, or Threads.
+- Uses the native share sheet when the browser supports sharing generated video files.
 
 ## Privacy
 
@@ -43,13 +45,23 @@ npm install
 npm run dev
 ```
 
-Open the local Vite URL, choose travel photos, review the route, then export a WebM.
+Open the local Vite URL, choose travel photos, review the route, then save/share the video.
+
+## Use On A Phone
+
+1. Open the deployed site on your phone.
+2. Tap **Select travel photos**.
+3. Select the travel photos you want to turn into a route video.
+4. Review the route, hide sensitive stops if needed, and tap **Preview**.
+5. Tap **Save / share video**.
+6. Post the generated vertical video to Reels, TikTok, Shorts, Threads, or Reddit.
+
+Browser note: websites cannot secretly scan a phone photo library. The user must explicitly choose photos first. That is intentional and matches the privacy goal of the project.
 
 No personal photos are required to try the UI:
 
-- Click **Scan my photo library** to choose a Photos/Pictures/DCIM/travel folder and build a recent route from it.
-- Click **Load demo route** to preview the animation and export flow with in-memory demo points.
-- Click **Load sample EXIF photos** to run the same import path against synthetic GPS JPEG files in `public/samples/`. They are generated test images, not personal photos.
+- Tap **Try demo** to preview the animation and export flow with in-memory demo points.
+- Tap **Test EXIF sample** to run the same import path against synthetic GPS JPEG files in `public/samples/`. They are generated test images, not personal photos.
 
 ## MVP Status
 
