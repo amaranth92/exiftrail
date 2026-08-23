@@ -194,7 +194,10 @@ function localZoom(points: PhotoPoint[]) {
   if (span > 8) return 5;
   if (span > 2) return 7;
   if (span > 0.5) return 9;
-  return 12;
+  if (span > 0.1) return 11;
+  if (span > 0.02) return 13;
+  if (span > 0.005) return 15;
+  return 17;
 }
 
 function vehicleIcon() {
