@@ -475,9 +475,8 @@ function RouteMap({ points, progress }: { points: PhotoPoint[]; progress: number
         cameraModeRef.current = "world";
       }
     } else {
-      if (cameraModeRef.current !== "local") map.setZoom(localZoom(active), { animate: false });
       cameraModeRef.current = "local";
-      map.panTo(visible.at(-1)!, { animate: false });
+      map.setView(visible.at(-1)!, localZoom(active), { animate: false });
     }
   }, [points, progress]);
 
