@@ -519,7 +519,7 @@ function App() {
     }
     setBusy(true);
     setScanProgress({ done: 0, total: files.filter(isPhoto).length });
-    setMessage("Reading photo time and GPS locally. Nothing is uploaded.");
+    setMessage("Scanning photos locally. Nothing is uploaded.");
     points.forEach((point) => URL.revokeObjectURL(point.url));
 
     const result = await readPhotos(files, setScanProgress, dateRange);
@@ -608,13 +608,32 @@ function App() {
 
       <section className="panel compact">
         <div className="stats">
-          <strong>{message}</strong>
-          {scanProgress && <span>{scanProgress.done}/{scanProgress.total} photos scanned</span>}
-          {summary && (
-            <span>
-              {active.length} route points · {summary.withoutGps} photos skipped without GPS · {summary.duplicates} near-duplicates removed
-              {summary.outsideRange ? ` · ${summary.outsideRange} outside date range` : ""}
-            </span>
+          <div className="status-copy">
+            <strong>{message}</strong>
+            {summary && (
+              <span>
+                {active.length} route points · {summary.withoutGps} photos skipped without GPS · {summary.duplicates} near-duplicates removed
+                {summary.outsideRange ? ` · ${summary.outsideRange} outside date range` : ""}
+              </span>
+            )}
+          </div>
+          {scanProgress && scanProgress.total > 0 && (
+            <div className="scan-progress" aria-live="polite">
+              <div className="scan-progress-heading">
+                <span>Scanning photos</span>
+                <strong>{scanProgress.done}/{scanProgress.total}</strong>
+              </div>
+              <div
+                className="scan-progress-track"
+                role="progressbar"
+                aria-label="Photo scanning progress"
+                aria-valuemin={0}
+                aria-valuemax={scanProgress.total}
+                aria-valuenow={scanProgress.done}
+              >
+                <span style={{ width: `${(scanProgress.done / scanProgress.total) * 100}%` }} />
+              </div>
+            </div>
           )}
         </div>
       </section>

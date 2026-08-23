@@ -215,8 +215,48 @@ button:disabled {
   background: #fff;
 }
 
+.status-copy {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
 .stats span {
   color: #475569;
+}
+
+.scan-progress {
+  flex: 0 1 280px;
+  min-width: 220px;
+}
+
+.scan-progress-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.scan-progress-heading span {
+  color: #475569;
+}
+
+.scan-progress-track {
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e2e8f0;
+}
+
+.scan-progress-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #0ea5e9;
+  transition: width 160ms ease-out;
 }
 
 @media (max-width: 840px) {
@@ -279,5 +319,9 @@ button:disabled {
     display: grid;
     gap: 8px;
     margin: 16px 0;
+  }
+
+  .scan-progress {
+    min-width: 0;
   }
 }
