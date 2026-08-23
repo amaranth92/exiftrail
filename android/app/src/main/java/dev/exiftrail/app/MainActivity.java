@@ -39,6 +39,8 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.DatePicker;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
@@ -100,21 +102,55 @@ public class MainActivity extends Activity {
         scrollView = scroll;
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(24), dp(28), dp(24), dp(28));
-        root.setBackgroundColor(0xfff2f4f6);
+        root.setPadding(dp(16), 0, dp(16), dp(32));
+        root.setBackgroundColor(Color.WHITE);
         scroll.addView(root);
+
+        LinearLayout topbar = new LinearLayout(this);
+        topbar.setGravity(Gravity.CENTER_VERTICAL);
+        topbar.setPadding(0, 0, 0, dp(8));
+        ImageView logo = new ImageView(this);
+        logo.setImageResource(R.drawable.ic_launcher);
+        logo.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(dp(32), dp(32));
+        logoLp.setMargins(0, dp(18), dp(10), dp(18));
+        topbar.addView(logo, logoLp);
+        TextView brand = text("ExifTrail", 19, 0xff191f28, true);
+        topbar.addView(brand, new LinearLayout.LayoutParams(0, -2, 1));
+        TextView privacyNote = text("Private by default", 13, 0xff8b95a1, true);
+        topbar.addView(privacyNote);
+        root.addView(topbar, new LinearLayout.LayoutParams(-1, dp(72)));
 
         TextView eyebrow = text("YOUR MEMORIES, IN MOTION", 13, 0xff3182f6, true);
         eyebrow.setLetterSpacing(.04f);
-        root.addView(eyebrow);
+        LinearLayout.LayoutParams eyebrowLp = new LinearLayout.LayoutParams(-1, -2);
+        eyebrowLp.setMargins(0, dp(22), 0, dp(10));
+        root.addView(eyebrow, eyebrowLp);
 
-        TextView title = text("ExifTrail", 36, 0xff191f28, true);
-        title.setPadding(0, dp(6), 0, 0);
+        TextView title = text("Turn photo memories into a route.", 42, 0xff191f28, true);
+        title.setLineSpacing(0, 1.02f);
         root.addView(title);
 
-        TextView lead = text("Choose the dates once. ExifTrail scans your full photo library and builds the moving route.", 20, 0xff4e5968, false);
-        lead.setPadding(0, dp(16), 0, dp(18));
-        root.addView(lead);
+        TextView lead = text("Allow photos, then ExifTrail turns their time and location metadata into a moving map video.", 19, 0xff4e5968, false);
+        lead.setLineSpacing(0, 1.35f);
+        LinearLayout.LayoutParams leadLp = new LinearLayout.LayoutParams(-1, -2);
+        leadLp.setMargins(0, dp(16), 0, dp(22));
+        root.addView(lead, leadLp);
+
+        LinearLayout consent = new LinearLayout(this);
+        consent.setOrientation(LinearLayout.VERTICAL);
+        consent.setPadding(dp(16), dp(14), dp(16), dp(14));
+        consent.setBackground(rounded(0xffffffff, 0xffe5e8eb, 16));
+        TextView consentTitle = text("No Google Timeline required.", 15, 0xff191f28, true);
+        consent.addView(consentTitle);
+        TextView consentBody = text("Your photos stay on this device. ExifTrail reads capture time and GPS, sorts them in order, and prepares a vertical video.", 14, 0xff6b7684, false);
+        consentBody.setLineSpacing(0, 1.35f);
+        LinearLayout.LayoutParams consentBodyLp = new LinearLayout.LayoutParams(-1, -2);
+        consentBodyLp.setMargins(0, dp(6), 0, 0);
+        consent.addView(consentBody, consentBodyLp);
+        LinearLayout.LayoutParams consentLp = new LinearLayout.LayoutParams(-1, -2);
+        consentLp.setMargins(0, 0, 0, dp(18));
+        root.addView(consent, consentLp);
 
         LinearLayout dates = new LinearLayout(this);
         dates.setOrientation(LinearLayout.HORIZONTAL);
@@ -129,30 +165,37 @@ public class MainActivity extends Activity {
         fromButton.setOnClickListener(v -> pickDate(from, this::refreshDates));
         toButton.setOnClickListener(v -> pickDate(to, this::refreshDates));
 
-        createButton = primaryButton("Allow full photo access and create video");
+        createButton = primaryButton("Allow photos and create video");
         createButton.setOnClickListener(v -> startRouteBuild());
-        LinearLayout.LayoutParams createLp = new LinearLayout.LayoutParams(-1, dp(62));
-        createLp.setMargins(0, dp(16), 0, dp(16));
+        LinearLayout.LayoutParams createLp = new LinearLayout.LayoutParams(-1, dp(56));
+        createLp.setMargins(0, 0, 0, dp(10));
         root.addView(createButton, createLp);
 
-        saveButton = secondaryActionButton("Save moving video");
+        saveButton = secondaryActionButton("Save video");
         saveButton.setEnabled(false);
         saveButton.setOnClickListener(v -> saveVideo());
-        LinearLayout.LayoutParams saveLp = new LinearLayout.LayoutParams(-1, dp(62));
-        saveLp.setMargins(0, 0, 0, dp(16));
+        LinearLayout.LayoutParams saveLp = new LinearLayout.LayoutParams(-1, dp(56));
+        saveLp.setMargins(0, 0, 0, dp(12));
         root.addView(saveButton, saveLp);
 
-        status = text("No upload. Tap once after choosing dates; photos stay on this phone.", 16, 0xff475569, true);
-        status.setPadding(0, dp(10), 0, 0);
-        root.addView(status);
+        LinearLayout statusCard = new LinearLayout(this);
+        statusCard.setOrientation(LinearLayout.VERTICAL);
+        statusCard.setPadding(dp(16), dp(14), dp(16), dp(14));
+        statusCard.setBackground(rounded(0xffffffff, 0xffe5e8eb, 16));
+        status = text("Allow photo access, then ExifTrail builds a route video from time and GPS metadata.", 15, 0xff191f28, true);
+        status.setLineSpacing(0, 1.3f);
+        statusCard.addView(status);
 
         scanProgress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         scanProgress.setMax(100);
         scanProgress.setProgressTintList(ColorStateList.valueOf(0xff3182f6));
         scanProgress.setVisibility(View.GONE);
         LinearLayout.LayoutParams progressLp = new LinearLayout.LayoutParams(-1, dp(10));
-        progressLp.setMargins(0, dp(10), 0, 0);
-        root.addView(scanProgress, progressLp);
+        progressLp.setMargins(0, dp(12), 0, 0);
+        statusCard.addView(scanProgress, progressLp);
+        LinearLayout.LayoutParams statusLp = new LinearLayout.LayoutParams(-1, -2);
+        statusLp.setMargins(0, dp(4), 0, dp(20));
+        root.addView(statusCard, statusLp);
 
         mapView = new WebView(this);
         WebSettings settings = mapView.getSettings();
@@ -167,9 +210,13 @@ public class MainActivity extends Activity {
         mapView.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
         mapView.setWebViewClient(new WebViewClient());
         mapView.loadDataWithBaseURL("file:///android_asset/", mapHtml(), "text/html", "UTF-8", null);
+        FrameLayout mapCard = new FrameLayout(this);
+        mapCard.setBackground(rounded(0xffdbeafe, 0xffe5e8eb, 24));
+        mapCard.setClipToOutline(true);
+        mapCard.addView(mapView, new FrameLayout.LayoutParams(-1, dp(560)));
         LinearLayout.LayoutParams routeLp = new LinearLayout.LayoutParams(-1, dp(560));
-        routeLp.setMargins(0, dp(24), 0, 0);
-        root.addView(mapView, routeLp);
+        routeLp.setMargins(0, 0, 0, 0);
+        root.addView(mapCard, routeLp);
 
         return scroll;
     }
