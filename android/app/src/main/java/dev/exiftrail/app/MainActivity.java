@@ -723,8 +723,6 @@ public class MainActivity extends Activity {
         List<MapSnapshot> localSnapshots = snapshots.subList(0, snapshots.size() - 1);
         float localPosition = Math.min(progress, .85f) / .85f * (localSnapshots.size() - 1);
         int localIndex = Math.min(localSnapshots.size() - 1, Math.max(0, (int) Math.floor(localPosition)));
-        MapSnapshot nextLocalSnapshot = localSnapshots.get(Math.min(localSnapshots.size() - 1, localIndex + 1));
-        float localBlend = localPosition - localIndex;
         MapSnapshot localSnapshot = localSnapshots.get(localIndex);
         if (progress >= .86f && worldSnapshot.bitmap != null) {
             drawMapBitmap(canvas, worldSnapshot.bitmap, mapRect, paint);
@@ -735,13 +733,7 @@ public class MainActivity extends Activity {
             drawMapBitmap(canvas, worldSnapshot.bitmap, mapRect, paint);
             paint.setAlpha(255);
         } else if (localSnapshot.bitmap != null) {
-            paint.setAlpha((int) (255 * (1f - localBlend)));
             drawMapBitmap(canvas, localSnapshot.bitmap, mapRect, paint);
-            if (nextLocalSnapshot.bitmap != null && nextLocalSnapshot != localSnapshot) {
-                paint.setAlpha((int) (255 * localBlend));
-                drawMapBitmap(canvas, nextLocalSnapshot.bitmap, mapRect, paint);
-            }
-            paint.setAlpha(255);
         } else {
             paint.setColor(0xfff8fafc);
             paint.setStrokeWidth(2);
@@ -811,10 +803,9 @@ public class MainActivity extends Activity {
         if (sprite == null) return;
         canvas.save();
         canvas.translate(x, y);
-        if (dx < 0) canvas.scale(-1f, 1f);
         Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
         int frameWidth = sprite.getWidth() / 8;
-        int frame = (animationFrame / 3) % 8;
+        int frame = (animationFrame / 6) % 8;
         Rect source = new Rect(frame * frameWidth, 0, (frame + 1) * frameWidth, sprite.getHeight());
         canvas.drawBitmap(sprite, source, new RectF(-18, -72, 18, 0), paint);
         canvas.restore();
@@ -951,7 +942,7 @@ public class MainActivity extends Activity {
         return "<!doctype html><html><head>"
                 + "<meta name='viewport' content='width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no'>"
                 + "<link rel='stylesheet' href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'>"
-                + "<style>html,body,#map{height:100%;margin:0;background:#dbeafe}.leaflet-container{font:14px system-ui}.panel{position:absolute;z-index:500;left:14px;right:14px;top:14px;background:rgba(25,31,40,.92);color:white;padding:12px 14px;border-radius:16px;font:800 14px system-ui;box-shadow:0 10px 24px rgba(25,31,40,.16)}.panel small{display:block;margin-top:4px;color:#c9d8ee;font-weight:700}.progress{height:5px;margin-top:10px;background:rgba(255,255,255,.16);border-radius:999px;overflow:hidden}.bar{height:100%;width:0;background:#5b9bff;border-radius:999px}.vehicle{border:0;background:transparent;filter:drop-shadow(0 2px 2px rgba(15,23,42,.38))}.route-character-sprite{display:block;width:32px;height:64px;background-image:url('characters/satgat-walk-8.png');background-repeat:no-repeat;background-size:800% 100%;image-rendering:pixelated;animation:route-character-walk 800ms steps(1,end) infinite}@keyframes route-character-walk{0%{background-position:0 0}12.5%{background-position:14.286% 0}25%{background-position:28.571% 0}37.5%{background-position:42.857% 0}50%{background-position:57.143% 0}62.5%{background-position:71.429% 0}75%{background-position:85.714% 0}87.5%{background-position:100% 0}100%{background-position:0 0}}</style>"
+                + "<style>html,body,#map{height:100%;margin:0;background:#dbeafe}.leaflet-container{font:14px system-ui}.panel{position:absolute;z-index:500;left:14px;right:14px;top:14px;background:rgba(25,31,40,.92);color:white;padding:12px 14px;border-radius:16px;font:800 14px system-ui;box-shadow:0 10px 24px rgba(25,31,40,.16)}.panel small{display:block;margin-top:4px;color:#c9d8ee;font-weight:700}.progress{height:5px;margin-top:10px;background:rgba(255,255,255,.16);border-radius:999px;overflow:hidden}.bar{height:100%;width:0;background:#5b9bff;border-radius:999px}.vehicle{border:0;background:transparent;filter:drop-shadow(0 2px 2px rgba(15,23,42,.38))}.route-character-sprite{display:block;width:32px;height:64px;background-image:url('characters/satgat-walk-8.png');background-repeat:no-repeat;background-size:800% 100%;image-rendering:pixelated;animation:route-character-walk 1200ms steps(1,end) infinite}@keyframes route-character-walk{0%{background-position:0 0}12.5%{background-position:14.286% 0}25%{background-position:28.571% 0}37.5%{background-position:42.857% 0}50%{background-position:57.143% 0}62.5%{background-position:71.429% 0}75%{background-position:85.714% 0}87.5%{background-position:100% 0}100%{background-position:0 0}}</style>"
                 + "</head><body><div id='map'></div><div id='panel' class='panel'><span id='place'>Route preview appears here</span><small id='time'>Waiting for photo GPS points</small><div class='progress'><div class='bar' id='bar'></div></div></div>"
                 + "<script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></script>"
                 + "<script>"
