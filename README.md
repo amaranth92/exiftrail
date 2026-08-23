@@ -54,9 +54,9 @@ Android 앱은 휴대폰 사진첩을 날짜 범위로 직접 검색하는 방�
 4. 이후에는 사진 선택창 없이 해당 기간의 전체 사진첩을 자동으로 검색합니다.
 5. 경로 미리보기가 끝나면 `Save moving video`를 눌러 저장합니다.
 
-권한 창이 다시 나타나지 않으면 앱이 이미 `선택한 사진` 상태인 것입니다. 안내창의
-`Open app settings`를 누른 뒤 사진 권한을 `모든 사진 허용`으로 바꾸고 앱으로
-돌아와 같은 버튼을 다시 누르면 됩니다.
+권한 창이 다시 나타나지 않고 `Photo access is ready` 안내가 나오면, `Allow and
+continue`를 눌러 현재 허용된 사진을 바로 검색할 수 있습니다. 전체 사진첩을
+검색하려면 최초 권한창에서 `모든 사진 허용`을 선택하는 것이 좋습니다.
 
 완성된 MP4는 휴대폰 사진첩의 `Movies/ExifTrail` 폴더에 저장됩니다.
 
@@ -136,9 +136,9 @@ The Android app is the direct phone-gallery workflow.
    picker.
 5. Tap `Save moving video` after the route is ready.
 
-If Android does not show the permission dialog again, open the app settings from
-the in-app message and change Photos and videos to **Allow all photos**, then tap
-the create button again.
+If Android does not show the permission dialog again, tap **Allow and continue** in
+the in-app message to scan the photos currently allowed on the device. For the
+complete gallery, choose **Allow all photos** on the first Android permission screen.
 
 The MP4 is saved to `Movies/ExifTrail` in the phone gallery.
 

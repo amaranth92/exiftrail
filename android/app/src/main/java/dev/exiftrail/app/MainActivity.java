@@ -6,7 +6,6 @@ import android.app.AlertDialog;
 import android.app.DatePickerDialog;
 import android.content.ContentValues;
 import android.content.ContentUris;
-import android.content.Intent;
 import android.content.res.ColorStateList;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
@@ -31,7 +30,6 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.ParcelFileDescriptor;
 import android.provider.MediaStore;
-import android.provider.Settings;
 import android.view.Surface;
 import android.view.Gravity;
 import android.view.PixelCopy;
@@ -206,20 +204,16 @@ public class MainActivity extends Activity {
             buildRoute();
         } else {
             scanProgress.setVisibility(View.GONE);
-            status.setText("Allow full photo access, not selected photos, so ExifTrail can scan the chosen dates automatically.");
+            status.setText("Selected photo access is active. You can continue with the photos currently allowed on this phone.");
             new AlertDialog.Builder(this)
-                    .setTitle("Full photo access is required")
-                    .setMessage("ExifTrail needs access to the complete photo library to search only the From-To dates. Choose Allow all photos in the next Android permission screen.")
-                    .setPositiveButton("Open app settings", (dialog, which) -> openAppSettings())
+                    .setTitle("Photo access is ready")
+                    .setMessage("Android currently allows a selected set of photos. Press Allow and ExifTrail will immediately scan the allowed photos between From and To. No file picker is used.")
+                    // Android cannot silently upgrade partial access to full access.
+                    // Continue with the photos the user has already allowed.
+                    .setPositiveButton("Allow and continue", (dialog, which) -> buildRoute())
                     .setNegativeButton("Close", null)
                     .show();
         }
-    }
-
-    private void openAppSettings() {
-        Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
-        intent.setData(Uri.parse("package:" + getPackageName()));
-        startActivity(intent);
     }
 
     private void buildRoute() {
