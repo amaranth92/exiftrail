@@ -5,6 +5,7 @@ import android.app.Activity;
 import android.app.DatePickerDialog;
 import android.content.ContentValues;
 import android.content.ContentUris;
+import android.content.res.ColorStateList;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.graphics.Canvas;
@@ -15,6 +16,7 @@ import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.Rect;
 import android.graphics.RectF;
+import android.graphics.drawable.GradientDrawable;
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.ExifInterface;
@@ -95,18 +97,19 @@ public class MainActivity extends Activity {
         scrollView = scroll;
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(20), dp(34), dp(20), dp(28));
-        root.setBackgroundColor(Color.WHITE);
+        root.setPadding(dp(24), dp(28), dp(24), dp(28));
+        root.setBackgroundColor(0xfff2f4f6);
         scroll.addView(root);
 
-        TextView eyebrow = text("PRIVATE PHOTO ROUTE VIDEO", 14, 0xff0369a1, true);
-        eyebrow.setLetterSpacing(.08f);
+        TextView eyebrow = text("YOUR MEMORIES, IN MOTION", 13, 0xff3182f6, true);
+        eyebrow.setLetterSpacing(.04f);
         root.addView(eyebrow);
 
-        TextView title = text("ExifTrail", 50, 0xff0f172a, true);
+        TextView title = text("ExifTrail", 36, 0xff191f28, true);
+        title.setPadding(0, dp(6), 0, 0);
         root.addView(title);
 
-        TextView lead = text("Pick a date range. Allow photo access once. ExifTrail scans your photo library and animates where you moved over time.", 24, 0xff111827, true);
+        TextView lead = text("Choose a date range, allow photo access, and turn your memories into a moving route.", 20, 0xff4e5968, false);
         lead.setPadding(0, dp(16), 0, dp(18));
         root.addView(lead);
 
@@ -129,7 +132,7 @@ public class MainActivity extends Activity {
         createLp.setMargins(0, dp(16), 0, dp(16));
         root.addView(createButton, createLp);
 
-        saveButton = primaryButton("Save moving video");
+        saveButton = secondaryActionButton("Save moving video");
         saveButton.setEnabled(false);
         saveButton.setOnClickListener(v -> saveVideo());
         LinearLayout.LayoutParams saveLp = new LinearLayout.LayoutParams(-1, dp(62));
@@ -137,10 +140,12 @@ public class MainActivity extends Activity {
         root.addView(saveButton, saveLp);
 
         status = text("No upload. Photos are only read on this phone.", 16, 0xff475569, true);
+        status.setPadding(0, dp(10), 0, 0);
         root.addView(status);
 
         scanProgress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         scanProgress.setMax(100);
+        scanProgress.setProgressTintList(ColorStateList.valueOf(0xff3182f6));
         scanProgress.setVisibility(View.GONE);
         LinearLayout.LayoutParams progressLp = new LinearLayout.LayoutParams(-1, dp(10));
         progressLp.setMargins(0, dp(10), 0, 0);
@@ -160,7 +165,7 @@ public class MainActivity extends Activity {
         mapView.setWebViewClient(new WebViewClient());
         mapView.loadDataWithBaseURL("file:///android_asset/", mapHtml(), "text/html", "UTF-8", null);
         LinearLayout.LayoutParams routeLp = new LinearLayout.LayoutParams(-1, dp(560));
-        routeLp.setMargins(0, dp(20), 0, 0);
+        routeLp.setMargins(0, dp(24), 0, 0);
         root.addView(mapView, routeLp);
 
         return scroll;
@@ -390,8 +395,8 @@ public class MainActivity extends Activity {
     }
 
     private void refreshDates() {
-        fromButton.setText("From\n" + dateFormat.format(new Date(from.getTimeInMillis())));
-        toButton.setText("To\n" + dateFormat.format(new Date(to.getTimeInMillis())));
+        fromButton.setText("From  " + dateFormat.format(new Date(from.getTimeInMillis())));
+        toButton.setText("To  " + dateFormat.format(new Date(to.getTimeInMillis())));
     }
 
     private TextView text(String value, int sp, int color, boolean bold) {
@@ -407,19 +412,41 @@ public class MainActivity extends Activity {
     private Button primaryButton(String value) {
         Button button = new Button(this);
         button.setText(value);
-        button.setTextSize(18);
+        button.setTextSize(16);
         button.setTextColor(Color.WHITE);
         button.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        button.setBackgroundColor(0xff0f172a);
+        button.setAllCaps(false);
+        button.setMinHeight(dp(56));
+        button.setPadding(dp(18), 0, dp(18), 0);
+        button.setBackground(rounded(0xff3182f6, 0xff3182f6, 14));
         return button;
     }
 
     private Button secondaryButton() {
         Button button = new Button(this);
-        button.setTextSize(15);
-        button.setTextColor(0xff0f172a);
+        button.setTextSize(14);
+        button.setTextColor(0xff191f28);
         button.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        button.setAllCaps(false);
+        button.setMinHeight(dp(58));
+        button.setPadding(dp(14), 0, dp(14), 0);
+        button.setBackground(rounded(0xffffffff, 0xffe5e8eb, 14));
         return button;
+    }
+
+    private Button secondaryActionButton(String value) {
+        Button button = secondaryButton();
+        button.setText(value);
+        button.setTextColor(0xff3182f6);
+        return button;
+    }
+
+    private GradientDrawable rounded(int fill, int stroke, int radiusDp) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(fill);
+        drawable.setCornerRadius(dp(radiusDp));
+        drawable.setStroke(dp(1), stroke);
+        return drawable;
     }
 
     private LinearLayout.LayoutParams weighted() {
@@ -656,12 +683,15 @@ public class MainActivity extends Activity {
         canvas.translate(x, y + (float) Math.sin(progress * Math.PI * 8) * 2f);
         if (dx < 0) canvas.scale(-1f, 1f);
         Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
-        canvas.drawBitmap(sprite, null, new RectF(-92, -92, 92, 92), paint);
+        int frameWidth = sprite.getWidth() / 4;
+        int frame = ((int) (progress * 28f)) % 4;
+        Rect source = new Rect(frame * frameWidth, 0, (frame + 1) * frameWidth, sprite.getHeight());
+        canvas.drawBitmap(sprite, source, new RectF(-36, -48, 36, 48), paint);
         canvas.restore();
     }
 
     private Bitmap loadCharacterSprite() throws Exception {
-        try (InputStream input = getAssets().open("characters/wanderer.png")) {
+        try (InputStream input = getAssets().open("characters/wanderer-walk.png")) {
             Bitmap sprite = BitmapFactory.decodeStream(input);
             if (sprite == null) throw new IllegalStateException("Could not load route character sprite");
             return sprite;
@@ -757,7 +787,7 @@ public class MainActivity extends Activity {
         return "<!doctype html><html><head>"
                 + "<meta name='viewport' content='width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no'>"
                 + "<link rel='stylesheet' href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'>"
-                + "<style>html,body,#map{height:100%;margin:0;background:#dbeafe}.leaflet-container{font:14px system-ui}.panel{position:absolute;z-index:500;left:14px;right:14px;top:14px;background:rgba(15,23,42,.9);color:white;padding:12px 14px;border-radius:16px;font:800 14px system-ui;box-shadow:0 14px 38px rgba(15,23,42,.24)}.panel small{display:block;margin-top:4px;color:#bfdbfe;font-weight:700}.progress{height:5px;margin-top:10px;background:rgba(255,255,255,.16);border-radius:999px;overflow:hidden}.bar{height:100%;width:0;background:#38bdf8;border-radius:999px}.vehicle{border:0;background:transparent}.vehicle img{width:96px;height:96px;object-fit:contain;pointer-events:none;animation:route-character-bob 700ms ease-in-out infinite;transform-origin:50% 88%}@keyframes route-character-bob{0%,100%{transform:translateY(1px)}50%{transform:translateY(-2px)}}</style>"
+                + "<style>html,body,#map{height:100%;margin:0;background:#dbeafe}.leaflet-container{font:14px system-ui}.panel{position:absolute;z-index:500;left:14px;right:14px;top:14px;background:rgba(25,31,40,.92);color:white;padding:12px 14px;border-radius:16px;font:800 14px system-ui;box-shadow:0 10px 24px rgba(25,31,40,.16)}.panel small{display:block;margin-top:4px;color:#c9d8ee;font-weight:700}.progress{height:5px;margin-top:10px;background:rgba(255,255,255,.16);border-radius:999px;overflow:hidden}.bar{height:100%;width:0;background:#5b9bff;border-radius:999px}.vehicle{border:0;background:transparent}.route-character-sprite{display:block;width:36px;height:48px;background-image:url('characters/wanderer-walk.png');background-repeat:no-repeat;background-size:400% 100%;animation:route-character-walk 520ms steps(4,end) infinite}@keyframes route-character-walk{0%{background-position:0 0;transform:translateY(1px)}100%{background-position:100% 0;transform:translateY(-1px)}}</style>"
                 + "</head><body><div id='map'></div><div id='panel' class='panel'><span id='place'>Route preview appears here</span><small id='time'>Waiting for photo GPS points</small><div class='progress'><div class='bar' id='bar'></div></div></div>"
                 + "<script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></script>"
                 + "<script>"
@@ -765,7 +795,7 @@ public class MainActivity extends Activity {
                 + "L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);"
                 + "map.setView([0,0],2);var full,line,marker,raf,lastPan=0,routePoints=[],latlngs=[],localZoom=4,cameraMode='local';"
                 + "function ll(p){return [p.lat,p.lng]}"
-                + "function vehicleIcon(){return L.divIcon({className:'vehicle',iconSize:[96,96],iconAnchor:[48,48],html:'<img src=\"characters/wanderer.png\" width=\"96\" height=\"96\" alt=\"route character\" />'})}"
+                + "function vehicleIcon(){return L.divIcon({className:'vehicle',iconSize:[36,48],iconAnchor:[18,44],html:'<span class=\"route-character-sprite\" role=\"img\" aria-label=\"route character\"></span>'})}"
                 + "function routeZoom(points){var lats=points.map(function(p){return p.lat}),lngs=points.map(function(p){return p.lng}),span=Math.max(Math.max.apply(null,lats)-Math.min.apply(null,lats),Math.max.apply(null,lngs)-Math.min.apply(null,lngs));return span>90?3:span>30?4:span>8?5:span>2?7:span>.5?9:12}"
                 + "function setCamera(t,world){if(!routePoints.length)return;var exact=(routePoints.length-1)*Math.max(0,Math.min(1,t));var end=Math.min(routePoints.length-1,Math.floor(exact)),next=routePoints[Math.min(routePoints.length-1,end+1)],cur=routePoints[end],f=exact-end;var point=[cur.lat+(next.lat-cur.lat)*f,cur.lng+(next.lng-cur.lng)*f];if(world){map.setView([20,0],1,{animate:false});cameraMode='world'}else{map.setView(point,localZoom,{animate:false});cameraMode='local'}}"
                 + "function setProgress(t,follow){if(!routePoints.length)return;var exact=(routePoints.length-1)*Math.max(0,Math.min(1,t));var end=Math.max(0,Math.floor(exact)),next=routePoints[Math.min(routePoints.length-1,end+1)],cur=routePoints[end],f=exact-end;var point=[cur.lat+(next.lat-cur.lat)*f,cur.lng+(next.lng-cur.lng)*f];var visible=latlngs.slice(0,end+1);visible.push(point);line.setLatLngs(visible);marker.setLatLng(point);document.getElementById('time').textContent=cur.time;document.getElementById('bar').style.width=(Math.max(0,Math.min(1,t))*100).toFixed(1)+'%';if(follow&&performance.now()-lastPan>550){if(t>=.86&&cameraMode!=='world'){map.fitBounds(L.latLngBounds(latlngs),{padding:[30,30],animate:true,duration:.8});cameraMode='world'}else if(t<.86){if(cameraMode!=='local')map.setZoom(localZoom,{animate:false});map.panTo(point,{animate:false});cameraMode='local'}lastPan=performance.now()}}"

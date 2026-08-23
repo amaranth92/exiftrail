@@ -38,7 +38,7 @@ const EXIF_CONCURRENCY = Math.max(4, Math.min(8, navigator.hardwareConcurrency |
 const ACCEPTED_IMAGES = "image/*,.jpg,.jpeg,.heic,.heif";
 
 const PHOTO_TYPES = new Set(["image/jpeg", "image/jpg", "image/heic", "image/heif"]);
-const ROUTE_SPRITE = "./assets/characters/wanderer.png";
+const ROUTE_SPRITE = "./assets/characters/wanderer-walk.png";
 let activeMapController: {
   capture: (progress: number, world: boolean) => Promise<MapSnapshot>;
 } | null = null;
@@ -193,9 +193,9 @@ function localZoom(points: PhotoPoint[]) {
 function vehicleIcon() {
   return L.divIcon({
     className: "vehicle-marker",
-    iconSize: [96, 96],
-    iconAnchor: [48, 48],
-    html: `<img src="${ROUTE_SPRITE}" width="96" height="96" alt="route character" />`,
+    iconSize: [36, 48],
+    iconAnchor: [18, 44],
+    html: `<span class="route-character-sprite" style="--route-sprite: url('${ROUTE_SPRITE}')" role="img" aria-label="route character"></span>`,
   });
 }
 
@@ -410,7 +410,9 @@ function drawVehicle(
   const bob = Math.sin(progress * Math.PI * 8) * 2;
   ctx.translate(x, y + bob);
   if (dx < 0) ctx.scale(-1, 1);
-  ctx.drawImage(sprite, -96, -96, 192, 192);
+  const frameWidth = sprite.width / 4;
+  const frame = Math.floor(progress * 28) % 4;
+  ctx.drawImage(sprite, frame * frameWidth, 0, frameWidth, sprite.height, -36, -48, 72, 96);
   ctx.restore();
 }
 
@@ -563,11 +565,16 @@ function App() {
   }
 
   return (
-    <main>
+    <main className="app-shell">
+      <header className="topbar">
+        <div className="brand"><span className="brand-mark" />ExifTrail</div>
+        <span className="topbar-note">Private by default</span>
+      </header>
+
       <section className="hero simple">
-        <div>
-          <p className="eyebrow">Private photo route video</p>
-          <h1>ExifTrail</h1>
+        <div className="intro">
+          <p className="eyebrow">Your memories, in motion</p>
+          <h1>Turn photo memories into a route.</h1>
           <p className="lead">
             Allow photos, then ExifTrail turns their time and location metadata into a moving map video.
           </p>
@@ -601,7 +608,7 @@ function App() {
           </div>
           <p className="privacy">No upload by default. Original photos are never edited, moved, or deleted.</p>
         </div>
-        <div className="phone">
+        <div className="phone" aria-label="Route preview">
           {active.length > 1 ? <RouteMap points={points} progress={progress} /> : <div className="empty">Moving route preview appears here</div>}
         </div>
       </section>
