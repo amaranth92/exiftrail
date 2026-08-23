@@ -12,6 +12,8 @@
   <a href="https://github.com/amaranth92/exiftrail">GitHub</a>
   &nbsp; · &nbsp;
   <a href="LICENSE">MIT 라이선스</a>
+  &nbsp; · &nbsp;
+  <a href="https://github.com/amaranth92/exiftrail/raw/refs/heads/master/public/downloads/ExifTrail-Android.apk">Android APK 다운로드</a>
 </p>
 
 ![ExifTrail 앱 아이콘](public/assets/brand/satgat-icon.png)
@@ -51,7 +53,25 @@ EXIF 정보만으로 Google Timeline과 비슷한 결과를 만들도록 ExifTra
 ## 결과 예시
 
 샘플 영상:
-[`public/demo/exiftrail-sample-route.webm`](public/demo/exiftrail-sample-route.webm)
+
+<video controls width="320" poster="https://github.com/amaranth92/exiftrail/raw/refs/heads/master/public/docs/screenshots/exiftrail-4.jpg">
+  <source src="https://github.com/amaranth92/exiftrail/raw/refs/heads/master/public/demo/exiftrail-sample-route.mp4" type="video/mp4">
+</video>
+
+[샘플 MP4 열기 또는 다운로드](https://github.com/amaranth92/exiftrail/raw/refs/heads/master/public/demo/exiftrail-sample-route.mp4)
+
+## 화면 예시
+
+<table>
+  <tr>
+    <td><img src="public/docs/screenshots/exiftrail-1.png" alt="Decody 배너가 보이는 첫 화면" width="220"></td>
+    <td><img src="public/docs/screenshots/exiftrail-2.png" alt="Neon Drift 배너가 보이는 첫 화면" width="220"></td>
+  </tr>
+  <tr>
+    <td><img src="public/docs/screenshots/exiftrail-3.jpg" alt="영상 생성 진행 화면" width="220"></td>
+    <td><img src="public/docs/screenshots/exiftrail-4.jpg" alt="완성된 경로 결과 화면" width="220"></td>
+  </tr>
+</table>
 
 ## 동작 방식
 
@@ -61,6 +81,40 @@ EXIF 정보만으로 Google Timeline과 비슷한 결과를 만들도록 ExifTra
 4. 촬영 시각순으로 정렬하고 GPS 정보가 없는 사진은 경로에서 제외합니다.
 5. 거의 같은 좌표를 줄이고 비정상적으로 큰 GPS 이동을 제외합니다.
 6. 지도 위에 경로와 캐릭터를 애니메이션으로 표시하고 세로 영상을 저장합니다.
+
+## Android 휴대폰에 설치하기
+
+Google Play 스토어가 아니라 GitHub에서 APK를 직접 내려받아 설치하는
+방식입니다.
+
+### 1. APK 다운로드 및 설치
+
+[ExifTrail-Android.apk 다운로드](https://github.com/amaranth92/exiftrail/raw/refs/heads/master/public/downloads/ExifTrail-Android.apk)
+
+1. Android 휴대폰에서 위 링크를 열고 APK를 다운로드합니다.
+2. 다운로드 알림이나 `Downloads` 폴더에서 APK 파일을 엽니다.
+3. 설치가 차단되면 안내창의 **설정**을 눌러, 사용 중인 브라우저 또는
+   파일 관리 앱에 **알 수 없는 앱 설치**를 허용합니다. 그 다음 APK를 다시 엽니다.
+4. **설치**를 누른 뒤 **열기**를 누릅니다.
+
+Google Play가 아닌 GitHub에서 직접 설치하는 파일이므로 Android 또는 Play
+Protect에서 경고가 표시될 수 있습니다. 이 저장소를 신뢰하는 경우에만
+설치하세요.
+
+### 2. 첫 경로 영상 만들기
+
+1. 첫 화면에서 `From`과 `To` 날짜를 정합니다.
+2. **Allow photos and create video**를 누릅니다.
+3. 사진 접근 권한을 묻는 화면에서 전체 사진첩을 분석하려면 **모든 사진
+   허용**을 선택합니다. **선택한 사진**을 고르면 선택한 사진만 분석합니다.
+4. 사진의 촬영 시각과 GPS 위치를 읽는 동안 기다립니다.
+5. 경로 미리보기가 준비되면 **Download video**를 누릅니다.
+6. 완성된 MP4는 휴대폰 갤러리의 `Movies/ExifTrail` 폴더에서 확인합니다.
+
+권한 창이 다시 나오지 않으면 **설정 → 앱 → ExifTrail → 권한 → 사진 및 동영상**
+에서 필요한 접근 권한을 허용하세요. GPS 좌표가 없는 사진은 경로 지점으로
+사용할 수 없으므로, 위치 정보가 없는 사진만 선택하면 경로가 만들어지지 않을
+수 있습니다.
 
 ## 버전별 사용법
 
@@ -112,7 +166,7 @@ npm run build
 npm run smoke
 ```
 
-## Android 빌드
+## Android 빌드 (개발자용)
 
 ```powershell
 cd android

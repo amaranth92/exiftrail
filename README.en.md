@@ -12,6 +12,8 @@
   <a href="https://github.com/amaranth92/exiftrail">GitHub</a>
   &nbsp; · &nbsp;
   <a href="LICENSE">MIT license</a>
+  &nbsp; · &nbsp;
+  <a href="https://github.com/amaranth92/exiftrail/raw/refs/heads/master/public/downloads/ExifTrail-Android.apk">Download Android APK</a>
 </p>
 
 ![ExifTrail app icon](public/assets/brand/satgat-icon.png)
@@ -53,9 +55,26 @@ without enabling a continuous location timeline.
 
 ## See it in motion
 
-The repository includes a small sample export:
+The repository includes the sample MP4 created from the project:
 
-[`public/demo/exiftrail-sample-route.webm`](public/demo/exiftrail-sample-route.webm)
+<video controls width="320" poster="https://github.com/amaranth92/exiftrail/raw/refs/heads/master/public/docs/screenshots/exiftrail-4.jpg">
+  <source src="https://github.com/amaranth92/exiftrail/raw/refs/heads/master/public/demo/exiftrail-sample-route.mp4" type="video/mp4">
+</video>
+
+[Open or download the sample MP4](https://github.com/amaranth92/exiftrail/raw/refs/heads/master/public/demo/exiftrail-sample-route.mp4)
+
+## Screenshots
+
+<table>
+  <tr>
+    <td><img src="public/docs/screenshots/exiftrail-1.png" alt="Home screen with Decody banner" width="220"></td>
+    <td><img src="public/docs/screenshots/exiftrail-2.png" alt="Home screen with Neon Drift banner" width="220"></td>
+  </tr>
+  <tr>
+    <td><img src="public/docs/screenshots/exiftrail-3.jpg" alt="Video generation progress" width="220"></td>
+    <td><img src="public/docs/screenshots/exiftrail-4.jpg" alt="Generated route result" width="220"></td>
+  </tr>
+</table>
 
 ## How it works
 
@@ -66,6 +85,42 @@ The repository includes a small sample export:
 4. Sort photos chronologically and skip images without usable GPS data.
 5. Remove near-duplicate points and reject suspiciously large GPS jumps.
 6. Draw the route, animate the Satgat character, and export the vertical video.
+
+## Install on an Android phone
+
+This project is not distributed through Google Play. The ready-to-install APK
+is provided directly from this GitHub repository.
+
+### 1. Download and install the APK
+
+[Download ExifTrail-Android.apk](https://github.com/amaranth92/exiftrail/raw/refs/heads/master/public/downloads/ExifTrail-Android.apk)
+
+1. Open the download link on your Android phone and save the APK.
+2. Open the downloaded file from the notification or the `Downloads` folder.
+3. If Android blocks the installation, open **Settings** from that message and
+   allow your browser or file manager to **Install unknown apps**. Return to the
+   APK and tap it again.
+4. Tap **Install**, then **Open**.
+
+This is a direct GitHub build, so Android or Play Protect may show a warning
+because it was not installed from Google Play. Only install the APK from this
+repository if you trust the source.
+
+### 2. Create your first route video
+
+1. Set the `From` and `To` dates on the first screen.
+2. Tap **Allow photos and create video**.
+3. When Android asks for photo access, choose **Allow all photos** if you want
+   ExifTrail to scan the complete gallery. **Selected photos** limits the scan
+   to the photos you choose.
+4. Wait while ExifTrail reads the capture time and GPS location from the photos.
+5. When the route preview is ready, tap **Download video**.
+6. Find the MP4 in the phone Gallery, under `Movies/ExifTrail`.
+
+If Android does not show the permission dialog again, open **Settings → Apps →
+ExifTrail → Permissions → Photos and videos** and grant the required access.
+Photos without GPS coordinates cannot become route points, so a route may be
+empty when the selected photos have no location metadata.
 
 ## Choose a version
 
@@ -118,7 +173,7 @@ npm run build
 npm run smoke
 ```
 
-## Build Android locally
+## Build Android locally (developers)
 
 ```powershell
 cd android
