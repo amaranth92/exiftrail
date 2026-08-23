@@ -45,6 +45,9 @@ import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.InputStream;
@@ -728,18 +731,31 @@ public class MainActivity extends Activity {
             routeReady.await(5000, TimeUnit.MILLISECONDS);
             List<MapSnapshot> mapSnapshots = new ArrayList<>();
             final int localSnapshotCount = 36;
+            final int transitionSnapshotCount = 8;
             for (int i = 0; i < localSnapshotCount; i++) {
                 float cameraProgress = .85f * i / (float) (localSnapshotCount - 1);
-                mapSnapshots.add(captureMapFrame(route, cameraProgress, false));
+                mapSnapshots.add(captureMapFrame(route, cameraProgress, false,
+                        "setCamera(" + cameraProgress + ",false)", cameraProgress));
                 int captured = i + 1;
-                int prepProgress = Math.round(captured * 55f / (localSnapshotCount + 1));
-                updateLoadingProgress(prepProgress, "Preparing map frames... " + captured + " / " + (localSnapshotCount + 1) + " (" + prepProgress + "%)");
+                int totalSnapshots = localSnapshotCount + transitionSnapshotCount + 1;
+                int prepProgress = Math.round(captured * 55f / totalSnapshots);
+                updateLoadingProgress(prepProgress, "Preparing map frames... " + captured + " / " + totalSnapshots + " (" + prepProgress + "%)");
             }
-            mapSnapshots.add(captureMapFrame(route, 1f, true));
+            for (int i = 0; i < transitionSnapshotCount; i++) {
+                float transitionProgress = i / (float) (transitionSnapshotCount - 1);
+                mapSnapshots.add(captureMapFrame(route, transitionProgress, false,
+                        "setTransition(" + transitionProgress + ")", .78f));
+                int captured = localSnapshotCount + i + 1;
+                int totalSnapshots = localSnapshotCount + transitionSnapshotCount + 1;
+                int prepProgress = Math.round(captured * 55f / totalSnapshots);
+                updateLoadingProgress(prepProgress, "Preparing map frames... " + captured + " / " + totalSnapshots + " (" + prepProgress + "%)");
+            }
+            mapSnapshots.add(captureMapFrame(route, 1f, true, "setCamera(1,true)", 1f));
             runOnUiThread(() -> mapView.evaluateJavascript(
                     "marker.setOpacity(1);line.setStyle({opacity:1});full.setStyle({opacity:1});document.body.classList.remove('exporting');document.getElementById('panel').style.display='block'",
                     null));
-            updateLoadingProgress(55, "Preparing map frames... " + (localSnapshotCount + 1) + " / " + (localSnapshotCount + 1) + " (55%)");
+            int totalSnapshots = localSnapshotCount + transitionSnapshotCount + 1;
+            updateLoadingProgress(55, "Preparing map frames... " + totalSnapshots + " / " + totalSnapshots + " (55%)");
             encoder.start();
             encoderStarted = true;
             muxer = new MediaMuxer(pfd.getFileDescriptor(), MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
@@ -752,7 +768,8 @@ public class MainActivity extends Activity {
                 float progress = frame / (float) (totalFrames - 1);
                 Canvas canvas = surface.lockCanvas(null);
                 try {
-                    drawVideoFrame(canvas, route, progress, frame, mapSnapshots, characterSprite, outputScale, periodLabel);
+                    drawVideoFrame(canvas, route, progress, frame, mapSnapshots, characterSprite, outputScale, periodLabel,
+                            localSnapshotCount, transitionSnapshotCount);
                 } finally {
                     surface.unlockCanvasAndPost(canvas);
                 }
@@ -810,9 +827,10 @@ public class MainActivity extends Activity {
         }
     }
 
-    private MapSnapshot captureMapFrame(List<RoutePoint> route, float progress, boolean world) throws InterruptedException {
+    private MapSnapshot captureMapFrame(List<RoutePoint> route, float progress, boolean world,
+                                        String cameraCommand, float routeProgress) throws InterruptedException {
         AtomicReference<Bitmap> result = new AtomicReference<>();
-        AtomicReference<double[]> cameraValues = new AtomicReference<>();
+        AtomicReference<MapProjection> projection = new AtomicReference<>();
         CountDownLatch latch = new CountDownLatch(1);
         runOnUiThread(() -> {
             int[] scrollLocation = new int[2];
@@ -821,19 +839,11 @@ public class MainActivity extends Activity {
             mapView.getLocationOnScreen(mapLocation);
             int targetScroll = scrollView.getScrollY() + mapLocation[1] - scrollLocation[1];
             scrollView.scrollTo(0, Math.max(0, targetScroll));
-            String routeVisibility = world
-                    ? "if(marker)marker.setOpacity(0);if(line)line.setStyle({opacity:0});if(full)full.setStyle({opacity:1})"
-                    : "if(marker)marker.setOpacity(0);if(line)line.setStyle({opacity:1});if(full)full.setStyle({opacity:0})";
-            mapView.evaluateJavascript("document.body.classList.add('exporting');setCamera(" + progress + "," + world + ");setProgress(" + progress + ",false);" + routeVisibility + ";document.getElementById('panel').style.display='none';map.getCenter().lat+','+map.getCenter().lng+','+map.getZoom()", value -> {
+            String routeVisibility = "if(marker)marker.setOpacity(0);if(line)line.setStyle({opacity:0});if(full)full.setStyle({opacity:0})";
+            String captureState = "document.body.classList.add('exporting');" + cameraCommand + ";setProgress(" + routeProgress + ",false);" + routeVisibility + ";document.getElementById('panel').style.display='none';({centerLat:map.getCenter().lat,centerLng:map.getCenter().lng,zoom:map.getZoom(),mapWidth:map.getSize().x,mapHeight:map.getSize().y,points:routePoints.map(function(p){var q=map.latLngToContainerPoint([p.lat,p.lng]);return [q.x,q.y]})})";
+            mapView.evaluateJavascript(captureState, value -> {
                 try {
-                    String camera = value == null ? "" : value;
-                    if (camera.length() >= 2 && camera.charAt(0) == '"' && camera.charAt(camera.length() - 1) == '"') {
-                        camera = camera.substring(1, camera.length() - 1);
-                    }
-                    String[] parts = camera.split(",");
-                    if (parts.length == 3) {
-                        cameraValues.set(new double[]{Double.parseDouble(parts[0]), Double.parseDouble(parts[1]), Double.parseDouble(parts[2])});
-                    }
+                    projection.set(MapProjection.from(value));
                 } catch (Exception ignored) {
                 }
                 mapView.postDelayed(() -> {
@@ -856,33 +866,43 @@ public class MainActivity extends Activity {
             });
         });
         latch.await(5000, TimeUnit.MILLISECONDS);
-        MapSnapshot camera = cameraFor(route, progress, world);
-        double[] actualCamera = cameraValues.get();
-        if (actualCamera != null) {
-            camera = new MapSnapshot(result.get(), actualCamera[0], actualCamera[1], (int) Math.round(actualCamera[2]), world);
+        MapSnapshot camera = cameraFor(route, routeProgress, world);
+        MapProjection actualProjection = projection.get();
+        if (actualProjection != null) {
+            camera = new MapSnapshot(result.get(), actualProjection.centerLat, actualProjection.centerLng,
+                    (int) Math.round(actualProjection.zoom), world, actualProjection.x, actualProjection.y,
+                    actualProjection.mapWidth, actualProjection.mapHeight);
+            return camera;
         }
         return new MapSnapshot(result.get(), camera.centerLat, camera.centerLng, camera.zoom, camera.world);
     }
 
-    private void drawVideoFrame(Canvas canvas, List<RoutePoint> route, float progress, int animationFrame, List<MapSnapshot> snapshots, Bitmap characterSprite, float outputScale, String periodLabel) {
+    private void drawVideoFrame(Canvas canvas, List<RoutePoint> route, float progress, int animationFrame,
+                                List<MapSnapshot> snapshots, Bitmap characterSprite, float outputScale,
+                                String periodLabel, int localSnapshotCount, int transitionSnapshotCount) {
         Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         canvas.drawColor(0xffdbeafe);
         canvas.save();
         canvas.scale(outputScale, outputScale);
         RectF mapRect = new RectF(0, 210, VIDEO_WIDTH, 1050);
-        MapSnapshot worldSnapshot = snapshots.get(snapshots.size() - 1);
-        List<MapSnapshot> localSnapshots = snapshots.subList(0, snapshots.size() - 1);
+        List<MapSnapshot> localSnapshots = snapshots.subList(0, localSnapshotCount);
+        List<MapSnapshot> transitionSnapshots = snapshots.subList(localSnapshotCount, localSnapshotCount + transitionSnapshotCount);
+        MapSnapshot worldSnapshot = snapshots.get(localSnapshotCount + transitionSnapshotCount);
         float localPosition = Math.min(progress, .85f) / .85f * (localSnapshots.size() - 1);
         int localIndex = Math.min(localSnapshots.size() - 1, Math.max(0, (int) Math.floor(localPosition)));
         MapSnapshot localSnapshot = localSnapshots.get(localIndex);
-        if (progress >= .86f && worldSnapshot.bitmap != null) {
-            drawMapBitmap(canvas, worldSnapshot.bitmap, mapRect, paint);
-        } else if (progress >= .78f && worldSnapshot.bitmap != null && localSnapshot.bitmap != null) {
-            paint.setAlpha((int) (255 * (1f - Math.min(1f, (progress - .78f) / .12f))));
-            drawMapBitmap(canvas, localSnapshot.bitmap, mapRect, paint);
-            paint.setAlpha((int) (255 * Math.min(1f, (progress - .78f) / .12f)));
-            drawMapBitmap(canvas, worldSnapshot.bitmap, mapRect, paint);
-            paint.setAlpha(255);
+        MapSnapshot frameSnapshot;
+        if (progress >= .90f) {
+            frameSnapshot = worldSnapshot;
+        } else if (progress >= .78f) {
+            float transitionPosition = (progress - .78f) / .12f * (transitionSnapshots.size() - 1);
+            int transitionIndex = Math.min(transitionSnapshots.size() - 1, Math.max(0, Math.round(transitionPosition)));
+            frameSnapshot = transitionSnapshots.get(transitionIndex);
+        } else {
+            frameSnapshot = localSnapshot;
+        }
+        if (frameSnapshot.bitmap != null) {
+            drawMapBitmap(canvas, frameSnapshot.bitmap, mapRect, paint);
         } else if (localSnapshot.bitmap != null) {
             drawMapBitmap(canvas, localSnapshot.bitmap, mapRect, paint);
         } else {
@@ -892,13 +912,12 @@ public class MainActivity extends Activity {
             for (int x = 0; x < VIDEO_WIDTH; x += 80) canvas.drawLine(x, 210, x, 1050, paint);
         }
 
-        MapSnapshot frameSnapshot = progress >= .86f ? worldSnapshot : localSnapshot;
         RouteLocation location = locationAt(route, progress);
         int currentIndex = location.index;
         float fraction = location.fraction;
         RectF plot = mapRect;
-        float[] currentPos = project(route.get(currentIndex), frameSnapshot, plot, route);
-        float[] nextPos = project(route.get(Math.min(route.size() - 1, currentIndex + 1)), frameSnapshot, plot, route);
+        float[] currentPos = projectAt(currentIndex, frameSnapshot, plot, route);
+        float[] nextPos = projectAt(Math.min(route.size() - 1, currentIndex + 1), frameSnapshot, plot, route);
         float x = currentPos[0] + (nextPos[0] - currentPos[0]) * fraction;
         float y = currentPos[1] + (nextPos[1] - currentPos[1]) * fraction;
         canvas.save();
@@ -912,16 +931,12 @@ public class MainActivity extends Activity {
             canvas.drawPath(routePath(route, progress, localSnapshot, plot, 0), paint);
         } else if (progress < .90f) {
             paint.setColor(0xff0ea5e9);
-            paint.setAlpha((int) (255 * (1f - Math.min(1f, (progress - .78f) / .12f))));
-            canvas.drawPath(routePath(route, progress, localSnapshot, plot, 0), paint);
-            paint.setAlpha((int) (255 * Math.min(1f, (progress - .78f) / .12f)));
-            canvas.drawPath(routePath(route, 1f, worldSnapshot, plot, 0), paint);
-            paint.setAlpha(255);
+            canvas.drawPath(routePath(route, progress, frameSnapshot, plot, 0), paint);
         } else {
             paint.setColor(0xff0ea5e9);
             canvas.drawPath(routePath(route, 1f, worldSnapshot, plot, 0), paint);
         }
-        if (!frameSnapshot.world) {
+        if (progress < .86f) {
             drawVehicle(canvas, x, y, nextPos[0] - currentPos[0], animationFrame, characterSprite);
         }
         canvas.restore();
@@ -984,16 +999,33 @@ public class MainActivity extends Activity {
         int endIndex = location.index;
         int firstIndex = Math.min(startIndex, endIndex);
         for (int i = firstIndex; i <= endIndex; i++) {
-            float[] pos = project(route.get(i), snapshot, plot, route);
+            float[] pos = projectAt(i, snapshot, plot, route);
             if (i == firstIndex) path.moveTo(pos[0], pos[1]);
             else path.lineTo(pos[0], pos[1]);
         }
         if (progress < 1f && endIndex < route.size() - 1 && endIndex >= firstIndex) {
-            float[] from = project(route.get(endIndex), snapshot, plot, route);
-            float[] to = project(route.get(endIndex + 1), snapshot, plot, route);
+            float[] from = projectAt(endIndex, snapshot, plot, route);
+            float[] to = projectAt(endIndex + 1, snapshot, plot, route);
             path.lineTo(from[0] + (to[0] - from[0]) * location.fraction, from[1] + (to[1] - from[1]) * location.fraction);
         }
         return path;
+    }
+
+    private float[] projectAt(int index, MapSnapshot snapshot, RectF plot, List<RoutePoint> route) {
+        if (snapshot.projectedX != null && snapshot.projectedY != null
+                && index >= 0 && index < snapshot.projectedX.length
+                && snapshot.mapWidth > 0f && snapshot.mapHeight > 0f) {
+            float bitmapWidth = snapshot.bitmap == null ? plot.width() : snapshot.bitmap.getWidth();
+            float bitmapHeight = snapshot.bitmap == null ? plot.height() : snapshot.bitmap.getHeight();
+            Rect source = sourceRect(snapshot.bitmap, plot);
+            float bitmapX = snapshot.projectedX[index] * bitmapWidth / snapshot.mapWidth;
+            float bitmapY = snapshot.projectedY[index] * bitmapHeight / snapshot.mapHeight;
+            return new float[]{
+                    plot.left + (bitmapX - source.left) * plot.width() / source.width(),
+                    plot.top + (bitmapY - source.top) * plot.height() / source.height()
+            };
+        }
+        return project(route.get(index), snapshot, plot, route);
     }
 
     private RouteLocation locationAt(List<RoutePoint> route, float progress) {
@@ -1132,6 +1164,7 @@ public class MainActivity extends Activity {
                 + "function routeZoom(points){var lats=points.map(function(p){return p.lat}),lngs=points.map(function(p){return p.lng}),span=Math.max(Math.max.apply(null,lats)-Math.min.apply(null,lats),Math.max.apply(null,lngs)-Math.min.apply(null,lngs));return span>90?3:span>30?4:span>8?5:span>2?7:span>.5?9:span>.1?11:span>.02?13:span>.005?15:17}"
                 + "function routeAt(t){var clamped=Math.max(0,Math.min(1,t)),exact=clamped*(routePoints.length-1),end=Math.min(routePoints.length-2,Math.floor(exact)),cur=routePoints[end],next=routePoints[Math.min(routePoints.length-1,end+1)],f=exact-end;return {end:end,cur:cur,next:next,f:f,point:[cur.lat+(next.lat-cur.lat)*f,cur.lng+(next.lng-cur.lng)*f]}}"
                 + "function setCamera(t,world){if(!routePoints.length)return;var a=routeAt(t),point=a.point;if(world){map.fitBounds(L.latLngBounds(latlngs),{padding:[30,30],maxZoom:2,animate:false});cameraMode='world'}else{map.setView(point,localZoom,{animate:false});cameraMode='local'}}"
+                + "function setTransition(t){if(!routePoints.length)return;var start=routeAt(.78).point,bounds=L.latLngBounds(latlngs),end=bounds.getCenter(),worldZoom=Math.min(2,map.getBoundsZoom(bounds,false,L.point(30,30))),lat=start[0]+(end.lat-start[0])*t,lng=start[1]+(end.lng-start[1])*t,zoom=localZoom+(worldZoom-localZoom)*t;map.setView([lat,lng],zoom,{animate:false});cameraMode='transition'}"
                 + "function setProgress(t,follow){if(!routePoints.length)return;var a=routeAt(t),point=a.point,visible=latlngs.slice(0,a.end+1);visible.push(point);line.setLatLngs(visible);marker.setLatLng(point);document.getElementById('time').textContent=a.cur.label;document.getElementById('bar').style.width=(Math.max(0,Math.min(1,t))*100).toFixed(1)+'%';if(follow&&performance.now()-lastPan>80){if(t>=.86&&cameraMode!=='world'){map.fitBounds(L.latLngBounds(latlngs),{padding:[30,30],maxZoom:2,animate:true,duration:.8});cameraMode='world'}else if(t<.86){map.setView(point,localZoom,{animate:false});cameraMode='local'}lastPan=performance.now()}}"
                 + "function renderRoute(points){document.getElementById('place').textContent=points.length+' route points found';"
                 + "if(full)map.removeLayer(full);if(line)map.removeLayer(line);if(marker)map.removeLayer(marker);if(raf)cancelAnimationFrame(raf);"
@@ -1201,13 +1234,67 @@ public class MainActivity extends Activity {
         final double centerLng;
         final int zoom;
         final boolean world;
+        final float[] projectedX;
+        final float[] projectedY;
+        final float mapWidth;
+        final float mapHeight;
 
         MapSnapshot(Bitmap bitmap, double centerLat, double centerLng, int zoom, boolean world) {
+            this(bitmap, centerLat, centerLng, zoom, world, null, null, 0f, 0f);
+        }
+
+        MapSnapshot(Bitmap bitmap, double centerLat, double centerLng, int zoom, boolean world,
+                    float[] projectedX, float[] projectedY, float mapWidth, float mapHeight) {
             this.bitmap = bitmap;
             this.centerLat = centerLat;
             this.centerLng = centerLng;
             this.zoom = zoom;
             this.world = world;
+            this.projectedX = projectedX;
+            this.projectedY = projectedY;
+            this.mapWidth = mapWidth;
+            this.mapHeight = mapHeight;
+        }
+    }
+
+    private static class MapProjection {
+        final double centerLat;
+        final double centerLng;
+        final double zoom;
+        final float mapWidth;
+        final float mapHeight;
+        final float[] x;
+        final float[] y;
+
+        MapProjection(double centerLat, double centerLng, double zoom, float mapWidth, float mapHeight, float[] x, float[] y) {
+            this.centerLat = centerLat;
+            this.centerLng = centerLng;
+            this.zoom = zoom;
+            this.mapWidth = mapWidth;
+            this.mapHeight = mapHeight;
+            this.x = x;
+            this.y = y;
+        }
+
+        static MapProjection from(String value) throws Exception {
+            JSONObject object = new JSONObject(value);
+            JSONArray points = object.getJSONArray("points");
+            float[] x = new float[points.length()];
+            float[] y = new float[points.length()];
+            for (int i = 0; i < points.length(); i++) {
+                JSONArray point = points.getJSONArray(i);
+                x[i] = (float) point.getDouble(0);
+                y[i] = (float) point.getDouble(1);
+            }
+            return new MapProjection(
+                    object.getDouble("centerLat"),
+                    object.getDouble("centerLng"),
+                    object.getDouble("zoom"),
+                    (float) object.getDouble("mapWidth"),
+                    (float) object.getDouble("mapHeight"),
+                    x,
+                    y
+            );
         }
     }
 
