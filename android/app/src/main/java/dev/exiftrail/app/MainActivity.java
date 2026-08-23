@@ -6,6 +6,7 @@ import android.app.AlertDialog;
 import android.app.DatePickerDialog;
 import android.content.ContentValues;
 import android.content.ContentUris;
+import android.content.Intent;
 import android.content.res.ColorStateList;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
@@ -89,11 +90,13 @@ public class MainActivity extends Activity {
     private WebView mapView;
     private ScrollView scrollView;
     private FrameLayout landingArea;
+    private ImageView landingCharacter;
     private LinearLayout dateRow;
     private FrameLayout mapCard;
     private View statusCard;
     private View loadingView;
     private TextView loadingStatus;
+    private AnimationDrawable landingAnimation;
     private AnimationDrawable loadingAnimation;
     private File preparedVideoFile;
     private boolean mapReady;
@@ -121,7 +124,7 @@ public class MainActivity extends Activity {
         scroll.setFillViewport(true);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(20), dp(10), dp(20), dp(28));
+        root.setPadding(dp(20), dp(10), dp(20), dp(44));
         root.setBackgroundColor(Color.WHITE);
         scroll.addView(root);
         screen.addView(scroll, new FrameLayout.LayoutParams(-1, -1));
@@ -147,6 +150,23 @@ public class MainActivity extends Activity {
         landingControlsLp.setMargins(0, dp(12), 0, dp(12));
         landingArea.addView(landingControls, landingControlsLp);
         root.addView(landingArea, new LinearLayout.LayoutParams(-1, 0, 1f));
+
+        landingCharacter = new ImageView(this);
+        landingAnimation = loadCharacterAnimation();
+        if (landingAnimation != null) landingCharacter.setImageDrawable(landingAnimation);
+        landingCharacter.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        LinearLayout.LayoutParams landingCharacterLp = new LinearLayout.LayoutParams(dp(200), dp(200));
+        landingCharacterLp.setMargins(0, 0, 0, dp(8));
+        landingControls.addView(landingCharacter, landingCharacterLp);
+        landingCharacter.post(() -> {
+            if (landingAnimation != null) landingAnimation.start();
+        });
+
+        TextView landingTitle = text("Turn memories into journeys", 17, 0xff191f28, true);
+        landingTitle.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams landingTitleLp = new LinearLayout.LayoutParams(-1, -2);
+        landingTitleLp.setMargins(0, 0, 0, dp(18));
+        landingControls.addView(landingTitle, landingTitleLp);
 
         dateRow = new LinearLayout(this);
         dateRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -222,6 +242,28 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams statusLp = new LinearLayout.LayoutParams(-1, -2);
         statusLp.setMargins(0, 0, 0, dp(20));
         root.addView(statusCard, statusLp);
+
+        LinearLayout supportBar = new LinearLayout(this);
+        supportBar.setOrientation(LinearLayout.VERTICAL);
+        supportBar.setPadding(dp(16), dp(14), dp(16), dp(14));
+        supportBar.setBackground(rounded(0xfff4f8ff, 0xffdbe7f8, 18));
+        TextView supportTitle = text("Support ExifTrail", 15, 0xff191f28, true);
+        supportBar.addView(supportTitle);
+        TextView supportText = text("Free, private, and open source.", 13, 0xff6b7684, false);
+        LinearLayout.LayoutParams supportTextLp = new LinearLayout.LayoutParams(-1, -2);
+        supportTextLp.setMargins(0, dp(3), 0, dp(10));
+        supportBar.addView(supportText, supportTextLp);
+        Button supportButton = secondaryActionButton("Support on GitHub");
+        supportButton.setTextSize(13);
+        supportButton.setMinHeight(dp(44));
+        supportButton.setOnClickListener(v -> startActivity(new Intent(
+                Intent.ACTION_VIEW,
+                Uri.parse("https://github.com/sponsors/amaranth92")
+        )));
+        supportBar.addView(supportButton, new LinearLayout.LayoutParams(-1, dp(44)));
+        LinearLayout.LayoutParams supportLp = new LinearLayout.LayoutParams(-1, -2);
+        supportLp.setMargins(0, dp(8), 0, 0);
+        root.addView(supportBar, supportLp);
 
         loadingView = new LinearLayout(this);
         ((LinearLayout) loadingView).setOrientation(LinearLayout.VERTICAL);
@@ -513,6 +555,8 @@ public class MainActivity extends Activity {
 
     private void compactLandingArea() {
         if (landingArea == null) return;
+        if (landingCharacter != null) landingCharacter.setVisibility(View.GONE);
+        if (landingAnimation != null) landingAnimation.stop();
         LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) landingArea.getLayoutParams();
         params.height = LinearLayout.LayoutParams.WRAP_CONTENT;
         params.weight = 0f;
@@ -520,7 +564,8 @@ public class MainActivity extends Activity {
     }
 
     private float[] readOriginalLatLng(Uri uri) {
-        try (InputStream input = getContentResolver().openInputStream(MediaStore.setRequireOriginal(uri))) {
+        Uri source = Build.VERSION.SDK_INT >= 29 ? MediaStore.setRequireOriginal(uri) : uri;
+        try (InputStream input = getContentResolver().openInputStream(source)) {
             if (input == null) return null;
             ExifInterface exif = new ExifInterface(input);
             float[] latLng = new float[2];
@@ -744,7 +789,7 @@ public class MainActivity extends Activity {
             for (int i = 0; i < transitionSnapshotCount; i++) {
                 float transitionProgress = i / (float) (transitionSnapshotCount - 1);
                 mapSnapshots.add(captureMapFrame(route, transitionProgress, false,
-                        "setTransition(" + transitionProgress + ")", .78f));
+                        "setTransition(" + transitionProgress + ")", .78f + .12f * transitionProgress));
                 int captured = localSnapshotCount + i + 1;
                 int totalSnapshots = localSnapshotCount + transitionSnapshotCount + 1;
                 int prepProgress = Math.round(captured * 55f / totalSnapshots);
@@ -840,7 +885,9 @@ public class MainActivity extends Activity {
             int targetScroll = scrollView.getScrollY() + mapLocation[1] - scrollLocation[1];
             scrollView.scrollTo(0, Math.max(0, targetScroll));
             String routeVisibility = "if(marker)marker.setOpacity(0);if(line)line.setStyle({opacity:0});if(full)full.setStyle({opacity:0})";
-            String captureState = "document.body.classList.add('exporting');" + cameraCommand + ";setProgress(" + routeProgress + ",false);" + routeVisibility + ";document.getElementById('panel').style.display='none';({centerLat:map.getCenter().lat,centerLng:map.getCenter().lng,zoom:map.getZoom(),mapWidth:map.getSize().x,mapHeight:map.getSize().y,points:routePoints.map(function(p){var q=map.latLngToContainerPoint([p.lat,p.lng]);return [q.x,q.y]})})";
+            String captureState = "document.body.classList.add('exporting');if(raf){cancelAnimationFrame(raf);raf=0;}"
+                    + cameraCommand + ";setProgress(" + routeProgress + ",false);" + routeVisibility
+                    + ";document.getElementById('panel').style.display='none';({centerLat:map.getCenter().lat,centerLng:map.getCenter().lng,zoom:map.getZoom(),mapWidth:map.getSize().x,mapHeight:map.getSize().y,points:routePoints.map(function(p){var q=map.latLngToContainerPoint([p.lat,p.lng]);return [q.x,q.y]})})";
             mapView.evaluateJavascript(captureState, value -> {
                 try {
                     projection.set(MapProjection.from(value));
@@ -926,14 +973,12 @@ public class MainActivity extends Activity {
         paint.setStrokeCap(Paint.Cap.ROUND);
         paint.setStrokeJoin(Paint.Join.ROUND);
         paint.setStrokeWidth(6);
+        paint.setColor(0xff0ea5e9);
         if (progress < .78f) {
-            paint.setColor(0xff0ea5e9);
             canvas.drawPath(routePath(route, progress, localSnapshot, plot, 0), paint);
         } else if (progress < .90f) {
-            paint.setColor(0xff0ea5e9);
             canvas.drawPath(routePath(route, progress, frameSnapshot, plot, 0), paint);
         } else {
-            paint.setColor(0xff0ea5e9);
             canvas.drawPath(routePath(route, 1f, worldSnapshot, plot, 0), paint);
         }
         if (progress < .86f) {
@@ -1006,7 +1051,8 @@ public class MainActivity extends Activity {
         if (progress < 1f && endIndex < route.size() - 1 && endIndex >= firstIndex) {
             float[] from = projectAt(endIndex, snapshot, plot, route);
             float[] to = projectAt(endIndex + 1, snapshot, plot, route);
-            path.lineTo(from[0] + (to[0] - from[0]) * location.fraction, from[1] + (to[1] - from[1]) * location.fraction);
+            path.lineTo(from[0] + (to[0] - from[0]) * location.fraction,
+                    from[1] + (to[1] - from[1]) * location.fraction);
         }
         return path;
     }
@@ -1169,8 +1215,8 @@ public class MainActivity extends Activity {
                 + "function renderRoute(points){document.getElementById('place').textContent=points.length+' route points found';"
                 + "if(full)map.removeLayer(full);if(line)map.removeLayer(line);if(marker)map.removeLayer(marker);if(raf)cancelAnimationFrame(raf);"
                 + "routePoints=points;latlngs=points.map(ll);"
-                + "full=L.polyline(latlngs,{color:'#0ea5e9',opacity:1,weight:4,lineCap:'round',lineJoin:'round'}).addTo(map);"
-                + "line=L.polyline([], {color:'#0ea5e9',weight:4,lineCap:'round',lineJoin:'round'}).addTo(map);"
+                + "full=L.polyline(latlngs,{color:'#0ea5e9',opacity:1,weight:5,lineCap:'round',lineJoin:'round'}).addTo(map);"
+                + "line=L.polyline([], {color:'#0ea5e9',weight:5,lineCap:'round',lineJoin:'round'}).addTo(map);"
                 + "marker=L.marker(ll(points[0]),{icon:vehicleIcon(),interactive:false}).addTo(map);"
                 + "localZoom=routeZoom(points);setCamera(0,false);var start=0,duration=10000;"
                 + "setProgress(0,true);function step(ts){if(!start)start=ts;var t=Math.min((ts-start)/duration,1);setProgress(t,true);if(t<1)raf=requestAnimationFrame(step)}"
