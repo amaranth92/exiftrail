@@ -29,11 +29,16 @@ import android.media.MediaMuxer;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.ParcelFileDescriptor;
 import android.provider.MediaStore;
 import android.view.Surface;
 import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewConfiguration;
+import android.view.accessibility.AccessibilityNodeInfo;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -45,6 +50,7 @@ import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.VideoView;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -74,6 +80,10 @@ public class MainActivity extends Activity {
     private static final int OUTPUT_HEIGHT = 1920;
     private static final int VIDEO_FPS = 30;
     private static final int VIDEO_SECONDS = 10;
+    private static final int AD_ROTATION_MS = 5000;
+    // The generated strip is 2172px wide and has a two-pixel dirty seam before frame 6.
+    private static final int[] CHARACTER_FRAME_LEFT = {0, 271, 542, 813, 1084, 1361, 1629, 1901};
+    private static final int[] CHARACTER_FRAME_RIGHT = {271, 542, 813, 1084, 1359, 1629, 1901, 2172};
 
     private final SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd", Locale.US);
     private final SimpleDateFormat mapDateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US);
@@ -88,6 +98,7 @@ public class MainActivity extends Activity {
     private TextView status;
     private ProgressBar scanProgress;
     private WebView mapView;
+    private VideoView previewVideo;
     private ScrollView scrollView;
     private FrameLayout landingArea;
     private ImageView landingCharacter;
@@ -96,11 +107,94 @@ public class MainActivity extends Activity {
     private View statusCard;
     private View loadingView;
     private TextView loadingStatus;
+    private ImageView adImage;
+    private TextView adTitle;
+    private TextView adDescription;
+    private TextView adCta;
+    private TextView adIndicator;
+    private View adPanel;
+    private FrameLayout adBannerView;
+    private int adIndex;
+    private float adTouchStartX;
+    private float adTouchStartY;
+    private boolean adGestureHorizontal;
+    private boolean adTransitioning;
+    private Bitmap[] adBitmaps;
+    private volatile boolean destroyed;
+    private volatile Thread activeTask;
+    private boolean activityResumed;
+    private boolean userPausedPreview;
+    private final Handler adHandler = new Handler(Looper.getMainLooper());
+    private final Runnable rotateAd = new Runnable() {
+        @Override
+        public void run() {
+            if (adImage == null) return;
+            slideAd(adIndex + 1, 1);
+            adHandler.postDelayed(this, AD_ROTATION_MS);
+        }
+    };
     private AnimationDrawable landingAnimation;
     private AnimationDrawable loadingAnimation;
     private File preparedVideoFile;
     private boolean mapReady;
     private List<RoutePoint> pendingMapRoute;
+
+    private static final AdBanner[] AD_BANNERS = {
+            new AdBanner(
+                    "neon-tower.png",
+                    "Neon Tower",
+                    "Stack higher. Drift beyond the stars.",
+                    "https://play.google.com/store/apps/details?id=com.bible.neontower",
+                    0xc921193d, Color.WHITE, 0xffdbeafe, 0xffffb52e, 0xff191f28
+            ),
+            new AdBanner(
+                    "neon-bricks.png",
+                    "Neon Bricks",
+                    "Break the neon wall. Chase the high score.",
+                    "https://play.google.com/store/apps/details?id=com.ultraneongalaxy.bricks",
+                    0xc91b123e, Color.WHITE, 0xffeadcff, 0xffff4fc3, Color.WHITE
+            ),
+            new AdBanner(
+                    "neon-drift-arcflare.png",
+                    "Neon Drift: Arcflare",
+                    "Drift, dodge, survive the neon lanes.",
+                    "https://play.google.com/store/apps/details?id=com.aussiepus.arcflare",
+                    0xc90b1634, Color.WHITE, 0xffd9f8ff, 0xff32d9ff, 0xff071426
+            ),
+            new AdBanner(
+                    "decody.png",
+                    "Decody",
+                    "Turn pet sounds into human words.",
+                    "https://play.google.com/store/apps/details?id=com.aussiepus.decody",
+                    0xdffff4e8, 0xff2b211c, 0xff614b3d, 0xffff704d, Color.WHITE
+            )
+    };
+
+    private static final class AdBanner {
+        final String asset;
+        final String title;
+        final String description;
+        final String link;
+        final int panelColor;
+        final int titleColor;
+        final int descriptionColor;
+        final int ctaColor;
+        final int ctaTextColor;
+
+        AdBanner(String asset, String title, String description, String link,
+                 int panelColor, int titleColor, int descriptionColor,
+                 int ctaColor, int ctaTextColor) {
+            this.asset = asset;
+            this.title = title;
+            this.description = description;
+            this.link = link;
+            this.panelColor = panelColor;
+            this.titleColor = titleColor;
+            this.descriptionColor = descriptionColor;
+            this.ctaColor = ctaColor;
+            this.ctaTextColor = ctaTextColor;
+        }
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -112,6 +206,7 @@ public class MainActivity extends Activity {
         to.set(Calendar.HOUR_OF_DAY, 23);
         to.set(Calendar.MINUTE, 59);
         to.set(Calendar.SECOND, 59);
+        adBitmaps = new Bitmap[AD_BANNERS.length];
 
         setContentView(buildUi());
         refreshDates();
@@ -189,12 +284,18 @@ public class MainActivity extends Activity {
         createLp.setMargins(0, 0, 0, dp(18));
         landingControls.addView(createButton, createLp);
 
+        FrameLayout adBanner = buildAdBanner();
+        LinearLayout.LayoutParams adLp = new LinearLayout.LayoutParams(-1, dp(100));
+        adLp.setMargins(0, 0, 0, dp(18));
+        landingControls.addView(adBanner, adLp);
+
         mapCard = new FrameLayout(this);
         mapCard.setBackground(rounded(0xffdbeafe, 0xffe5e8eb, 24));
         mapCard.setClipToOutline(true);
         float density = getResources().getDisplayMetrics().density;
         int contentWidthDp = Math.round(getResources().getDisplayMetrics().widthPixels / density) - 40;
         int mapHeightDp = Math.round(contentWidthDp * 840f / 720f);
+        int previewHeightDp = Math.round(contentWidthDp * OUTPUT_HEIGHT / (float) OUTPUT_WIDTH);
         mapView = new WebView(this);
         WebSettings settings = mapView.getSettings();
         settings.setJavaScriptEnabled(true);
@@ -219,8 +320,22 @@ public class MainActivity extends Activity {
         mapReady = false;
         mapView.loadDataWithBaseURL("file:///android_asset/", mapHtml(), "text/html", "UTF-8", null);
         mapCard.addView(mapView, new FrameLayout.LayoutParams(-1, dp(mapHeightDp)));
+        previewVideo = new VideoView(this);
+        previewVideo.setBackgroundColor(Color.BLACK);
+        previewVideo.setVisibility(View.GONE);
+        previewVideo.setContentDescription("Generated route video preview. Tap to pause or play.");
+        previewVideo.setOnClickListener(v -> {
+            if (previewVideo.isPlaying()) {
+                previewVideo.pause();
+                userPausedPreview = true;
+            } else {
+                userPausedPreview = false;
+                previewVideo.start();
+            }
+        });
+        mapCard.addView(previewVideo, new FrameLayout.LayoutParams(-1, -1));
         mapCard.setVisibility(View.GONE);
-        root.addView(mapCard, new LinearLayout.LayoutParams(-1, dp(mapHeightDp)));
+        root.addView(mapCard, new LinearLayout.LayoutParams(-1, dp(previewHeightDp)));
 
         saveButton = secondaryActionButton("Download video");
         saveButton.setEnabled(false);
@@ -242,28 +357,6 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams statusLp = new LinearLayout.LayoutParams(-1, -2);
         statusLp.setMargins(0, 0, 0, dp(20));
         root.addView(statusCard, statusLp);
-
-        LinearLayout supportBar = new LinearLayout(this);
-        supportBar.setOrientation(LinearLayout.VERTICAL);
-        supportBar.setPadding(dp(16), dp(14), dp(16), dp(14));
-        supportBar.setBackground(rounded(0xfff4f8ff, 0xffdbe7f8, 18));
-        TextView supportTitle = text("Support ExifTrail", 15, 0xff191f28, true);
-        supportBar.addView(supportTitle);
-        TextView supportText = text("Free, private, and open source.", 13, 0xff6b7684, false);
-        LinearLayout.LayoutParams supportTextLp = new LinearLayout.LayoutParams(-1, -2);
-        supportTextLp.setMargins(0, dp(3), 0, dp(10));
-        supportBar.addView(supportText, supportTextLp);
-        Button supportButton = secondaryActionButton("Support on GitHub");
-        supportButton.setTextSize(13);
-        supportButton.setMinHeight(dp(44));
-        supportButton.setOnClickListener(v -> startActivity(new Intent(
-                Intent.ACTION_VIEW,
-                Uri.parse("https://github.com/sponsors/amaranth92")
-        )));
-        supportBar.addView(supportButton, new LinearLayout.LayoutParams(-1, dp(44)));
-        LinearLayout.LayoutParams supportLp = new LinearLayout.LayoutParams(-1, -2);
-        supportLp.setMargins(0, dp(8), 0, 0);
-        root.addView(supportBar, supportLp);
 
         loadingView = new LinearLayout(this);
         ((LinearLayout) loadingView).setOrientation(LinearLayout.VERTICAL);
@@ -296,14 +389,220 @@ public class MainActivity extends Activity {
         return screen;
     }
 
+    private FrameLayout buildAdBanner() {
+        FrameLayout banner = new FrameLayout(this);
+        adBannerView = banner;
+        banner.setBackground(rounded(0xff111827, 0xffdbe7f8, 16));
+        banner.setClipToOutline(true);
+        banner.setFocusable(true);
+        int touchSlop = ViewConfiguration.get(this).getScaledTouchSlop();
+
+        adImage = new ImageView(this);
+        adImage.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        adImage.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        banner.addView(adImage, new FrameLayout.LayoutParams(-1, -1));
+
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setGravity(Gravity.CENTER_VERTICAL);
+        panel.setPadding(dp(12), dp(8), dp(10), dp(8));
+        panel.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+        adPanel = panel;
+        FrameLayout.LayoutParams panelLp = new FrameLayout.LayoutParams(dp(214), -1, Gravity.START);
+        panelLp.setMargins(dp(5), dp(5), 0, dp(5));
+        banner.addView(panel, panelLp);
+
+        adTitle = text("", 20, Color.WHITE, true);
+        adTitle.setMaxLines(2);
+        adTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(-1, -2);
+        panel.addView(adTitle, titleLp);
+        adDescription = text("", 10, 0xffdbeafe, false);
+        adDescription.setMaxLines(2);
+        adDescription.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams descriptionLp = new LinearLayout.LayoutParams(-1, -2);
+        descriptionLp.setMargins(0, dp(1), 0, dp(4));
+        panel.addView(adDescription, descriptionLp);
+        adCta = text("Explore now", 10, Color.WHITE, true);
+        adCta.setGravity(Gravity.CENTER);
+        adCta.setPadding(dp(10), 0, dp(10), 0);
+        panel.addView(adCta, new LinearLayout.LayoutParams(dp(92), dp(24)));
+
+        adIndicator = text("", 10, Color.WHITE, true);
+        adIndicator.setGravity(Gravity.CENTER);
+        adIndicator.setPadding(dp(8), 0, dp(8), 0);
+        adIndicator.setBackground(rounded(0x99000000, 0x00000000, 12));
+        adIndicator.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        FrameLayout.LayoutParams indicatorLp = new FrameLayout.LayoutParams(-2, dp(24), Gravity.END | Gravity.BOTTOM);
+        indicatorLp.setMargins(0, 0, dp(8), dp(8));
+        banner.addView(adIndicator, indicatorLp);
+
+        banner.setOnClickListener(v -> startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(AD_BANNERS[adIndex].link))));
+        banner.setOnTouchListener((v, event) -> {
+            if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
+                adTouchStartX = event.getX();
+                adTouchStartY = event.getY();
+                adGestureHorizontal = false;
+                adHandler.removeCallbacks(rotateAd);
+                adImage.animate().cancel();
+                adPanel.animate().cancel();
+                adImage.setTranslationX(0);
+                adImage.setAlpha(1f);
+                adPanel.setTranslationX(0);
+                adPanel.setAlpha(1f);
+                adTransitioning = false;
+                return true;
+            }
+            if (event.getActionMasked() == MotionEvent.ACTION_MOVE) {
+                float deltaX = event.getX() - adTouchStartX;
+                float deltaY = event.getY() - adTouchStartY;
+                if (!adGestureHorizontal && Math.abs(deltaX) > touchSlop
+                        && Math.abs(deltaX) > Math.abs(deltaY)) {
+                    adGestureHorizontal = true;
+                    v.getParent().requestDisallowInterceptTouchEvent(true);
+                }
+                return true;
+            }
+            if (event.getActionMasked() == MotionEvent.ACTION_UP) {
+                float deltaX = event.getX() - adTouchStartX;
+                float deltaY = event.getY() - adTouchStartY;
+                if (adGestureHorizontal && Math.abs(deltaX) >= dp(32)) {
+                    int direction = deltaX < 0 ? 1 : -1;
+                    slideAd(adIndex + direction, direction);
+                } else if (Math.abs(deltaX) <= touchSlop && Math.abs(deltaY) <= touchSlop) {
+                    v.performClick();
+                }
+                v.getParent().requestDisallowInterceptTouchEvent(false);
+                resetAdRotation();
+                return true;
+            }
+            if (event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
+                v.getParent().requestDisallowInterceptTouchEvent(false);
+                resetAdRotation();
+                return true;
+            }
+            return true;
+        });
+        banner.setAccessibilityDelegate(new View.AccessibilityDelegate() {
+            @Override
+            public void onInitializeAccessibilityNodeInfo(View host, AccessibilityNodeInfo info) {
+                super.onInitializeAccessibilityNodeInfo(host, info);
+                info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_FORWARD);
+                info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_BACKWARD);
+            }
+
+            @Override
+            public boolean performAccessibilityAction(View host, int action, Bundle arguments) {
+                if (action == AccessibilityNodeInfo.ACTION_SCROLL_FORWARD) {
+                    slideAd(adIndex + 1, 1);
+                    resetAdRotation();
+                    return true;
+                }
+                if (action == AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD) {
+                    slideAd(adIndex - 1, -1);
+                    resetAdRotation();
+                    return true;
+                }
+                return super.performAccessibilityAction(host, action, arguments);
+            }
+        });
+        showAd(0);
+        return banner;
+    }
+
+    private void showAd(int index) {
+        int nextIndex = (index % AD_BANNERS.length + AD_BANNERS.length) % AD_BANNERS.length;
+        AdBanner ad = AD_BANNERS[nextIndex];
+        if (adBitmaps[nextIndex] == null) {
+            try (InputStream input = getAssets().open("ad-banners/" + ad.asset)) {
+                adBitmaps[nextIndex] = BitmapFactory.decodeStream(input);
+            } catch (Exception ignored) {
+                return;
+            }
+        }
+        if (adBitmaps[nextIndex] == null) return;
+        adIndex = nextIndex;
+        adImage.setImageBitmap(adBitmaps[adIndex]);
+        adTitle.setText(ad.title);
+        adTitle.setTextColor(ad.titleColor);
+        adDescription.setText(ad.description);
+        adDescription.setTextColor(ad.descriptionColor);
+        adCta.setTextColor(ad.ctaTextColor);
+        adCta.setBackground(rounded(ad.ctaColor, ad.ctaColor, 12));
+        adPanel.setBackground(rounded(ad.panelColor, 0x00000000, 14));
+        adIndicator.setText((adIndex + 1) + " / " + AD_BANNERS.length);
+        adBannerView.setContentDescription(ad.title + ". " + ad.description + ". Ad "
+                + (adIndex + 1) + " of " + AD_BANNERS.length + ". Swipe left or right for another ad.");
+    }
+
+    private void slideAd(int index, int direction) {
+        if (adTransitioning) return;
+        adTransitioning = true;
+        float distance = dp(28) * direction;
+        adImage.animate().translationX(-distance).alpha(.25f).setDuration(110).withEndAction(() -> {
+            showAd(index);
+            adImage.setTranslationX(distance);
+            adImage.animate().translationX(0).alpha(1f).setDuration(170).withEndAction(() -> adTransitioning = false).start();
+        }).start();
+        adPanel.animate().translationX(-distance).alpha(.2f).setDuration(110).withEndAction(() -> {
+            adPanel.setTranslationX(distance);
+            adPanel.animate().translationX(0).alpha(1f).setDuration(170).start();
+        }).start();
+    }
+
+    private void resetAdRotation() {
+        adHandler.removeCallbacks(rotateAd);
+        if (adImage != null && loadingView != null && loadingView.getVisibility() != View.VISIBLE) {
+            adHandler.postDelayed(rotateAd, AD_ROTATION_MS);
+        }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        activityResumed = true;
+        resetAdRotation();
+        if (previewVideo != null && previewVideo.getVisibility() == View.VISIBLE && !userPausedPreview) {
+            previewVideo.start();
+        }
+    }
+
+    @Override
+    protected void onPause() {
+        activityResumed = false;
+        adHandler.removeCallbacks(rotateAd);
+        if (previewVideo != null && previewVideo.isPlaying()) previewVideo.pause();
+        super.onPause();
+    }
+
+    @Override
+    protected void onDestroy() {
+        destroyed = true;
+        Thread task = activeTask;
+        if (task != null) task.interrupt();
+        adHandler.removeCallbacks(rotateAd);
+        if (adImage != null) adImage.animate().cancel();
+        if (adPanel != null) adPanel.animate().cancel();
+        if (previewVideo != null) previewVideo.stopPlayback();
+        if (mapView != null) mapView.destroy();
+        if (adImage != null) adImage.setImageDrawable(null);
+        if (adBitmaps != null) {
+            for (Bitmap bitmap : adBitmaps) {
+                if (bitmap != null && !bitmap.isRecycled()) bitmap.recycle();
+            }
+        }
+        super.onDestroy();
+    }
+
     private AnimationDrawable loadCharacterAnimation() {
         try (InputStream input = getAssets().open("characters/satgat-walk-8.png")) {
             Bitmap sheet = BitmapFactory.decodeStream(input);
             if (sheet == null) return null;
-            int frameWidth = sheet.getWidth() / 8;
             AnimationDrawable animation = new AnimationDrawable();
-            for (int i = 0; i < 8; i++) {
-                Bitmap frame = Bitmap.createBitmap(sheet, i * frameWidth, 0, frameWidth, sheet.getHeight());
+            for (int i = 0; i < CHARACTER_FRAME_LEFT.length; i++) {
+                int left = Math.min(sheet.getWidth(), CHARACTER_FRAME_LEFT[i]);
+                int right = Math.min(sheet.getWidth(), CHARACTER_FRAME_RIGHT[i]);
+                Bitmap frame = Bitmap.createBitmap(sheet, left, 0, right - left, sheet.getHeight());
                 animation.addFrame(new BitmapDrawable(getResources(), frame), 150);
             }
             animation.setOneShot(false);
@@ -327,6 +626,14 @@ public class MainActivity extends Activity {
     }
 
     private void showLoadingScreen() {
+        adHandler.removeCallbacks(rotateAd);
+        if (previewVideo != null) {
+            previewVideo.setOnPreparedListener(null);
+            previewVideo.setOnErrorListener(null);
+            previewVideo.stopPlayback();
+            previewVideo.setVisibility(View.GONE);
+        }
+        if (mapView != null) mapView.setVisibility(View.VISIBLE);
         loadingView.setVisibility(View.VISIBLE);
         scanProgress.setIndeterminate(false);
         scanProgress.setMax(100);
@@ -341,6 +648,7 @@ public class MainActivity extends Activity {
 
     private void updateLoadingProgress(int progress, String message) {
         runOnUiThread(() -> {
+            if (destroyed) return;
             scanProgress.setIndeterminate(false);
             scanProgress.setMax(100);
             scanProgress.setProgress(Math.max(0, Math.min(100, progress)));
@@ -354,6 +662,7 @@ public class MainActivity extends Activity {
         fromButton.setEnabled(true);
         toButton.setEnabled(true);
         createButton.setEnabled(true);
+        resetAdRotation();
     }
 
     private void requestPhotoAccess() {
@@ -397,10 +706,12 @@ public class MainActivity extends Activity {
         }
         points.clear();
 
-        new Thread(() -> {
+        Thread task = new Thread(() -> {
             ScanResult result = queryPhotos();
+            if (destroyed || Thread.currentThread().isInterrupted()) return;
             if (result.points.size() < 2) {
                 runOnUiThread(() -> {
+                    if (destroyed) return;
                     points.clear();
                     status.setText("Scanned " + result.total + " photos in range, found " + result.withGps + " with GPS. Try a wider range or enable camera location tags.");
                     statusCard.setVisibility(View.VISIBLE);
@@ -415,6 +726,7 @@ public class MainActivity extends Activity {
                 updateLoadingProgress(0, "Preparing your moving map video...");
                 File videoFile = prepareRouteVideo(route);
                 runOnUiThread(() -> {
+                    if (destroyed) return;
                     points.clear();
                     points.addAll(route);
                     preparedVideoFile = videoFile;
@@ -423,11 +735,12 @@ public class MainActivity extends Activity {
                     mapCard.setVisibility(View.VISIBLE);
                     saveButton.setVisibility(View.VISIBLE);
                     saveButton.setEnabled(true);
-                    renderMapRoute(points);
+                    showPreparedVideo();
                     hideLoadingScreen();
                 });
             } catch (Exception e) {
                 runOnUiThread(() -> {
+                    if (destroyed) return;
                     status.setText("Video preparation failed: " + e.getMessage());
                     statusCard.setVisibility(View.VISIBLE);
                     mapCard.setVisibility(View.GONE);
@@ -435,7 +748,9 @@ public class MainActivity extends Activity {
                     hideLoadingScreen();
                 });
             }
-        }).start();
+        });
+        activeTask = task;
+        task.start();
     }
 
     private void saveVideo() {
@@ -446,28 +761,54 @@ public class MainActivity extends Activity {
         showLoadingScreen();
         loadingStatus.setText("Saving video to Gallery...");
         updateLoadingProgress(0, "Saving video to Gallery...");
-        new Thread(() -> {
+        Thread task = new Thread(() -> {
             try {
                 Uri uri = publishPreparedVideo(preparedVideoFile);
                 runOnUiThread(() -> {
+                    if (destroyed) return;
                     hideLoadingScreen();
                     statusCard.setVisibility(View.VISIBLE);
                     mapCard.setVisibility(View.VISIBLE);
                     saveButton.setVisibility(View.VISIBLE);
                     saveButton.setEnabled(true);
                     status.setText("Saved moving route video to Gallery: " + uri);
-                    renderMapRoute(points);
+                    showPreparedVideo();
                 });
             } catch (Exception e) {
                 runOnUiThread(() -> {
+                    if (destroyed) return;
                     hideLoadingScreen();
                     statusCard.setVisibility(View.VISIBLE);
                     saveButton.setVisibility(View.VISIBLE);
                     saveButton.setEnabled(true);
                     status.setText("Video save failed: " + e.getMessage());
+                    showPreparedVideo();
                 });
             }
-        }).start();
+        });
+        activeTask = task;
+        task.start();
+    }
+
+    private void showPreparedVideo() {
+        if (preparedVideoFile == null || !preparedVideoFile.exists()) return;
+        userPausedPreview = false;
+        mapView.setVisibility(View.INVISIBLE);
+        previewVideo.setVisibility(View.VISIBLE);
+        previewVideo.setBackgroundColor(Color.BLACK);
+        previewVideo.setOnPreparedListener(player -> {
+            player.setLooping(true);
+            previewVideo.setBackgroundColor(Color.TRANSPARENT);
+            if (activityResumed && !userPausedPreview) previewVideo.start();
+        });
+        previewVideo.setOnErrorListener((player, what, extra) -> {
+            previewVideo.setBackgroundColor(Color.BLACK);
+            previewVideo.setContentDescription("Route video preview is unavailable. The prepared video can still be downloaded.");
+            status.setText("Preview playback is unavailable on this device. The prepared video can still be downloaded.");
+            statusCard.setVisibility(View.VISIBLE);
+            return true;
+        });
+        previewVideo.setVideoPath(preparedVideoFile.getAbsolutePath());
     }
 
     private ScanResult queryPhotos() {
@@ -721,6 +1062,9 @@ public class MainActivity extends Activity {
             long length = Math.max(1, source.length());
             int read;
             while ((read = input.read(buffer)) != -1) {
+                if (destroyed || Thread.currentThread().isInterrupted()) {
+                    throw new InterruptedException("Video save was cancelled");
+                }
                 output.write(buffer, 0, read);
                 total += read;
                 updateLoadingProgress((int) Math.min(100, total * 100 / length), "Saving video to Gallery...");
@@ -762,19 +1106,22 @@ public class MainActivity extends Activity {
         MediaMuxer muxer = null;
         Surface surface = null;
         boolean encoderStarted = false;
+        Bitmap characterSprite = null;
+        List<MapSnapshot> mapSnapshots = new ArrayList<>();
         try {
             encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
             surface = encoder.createInputSurface();
             int totalFrames = VIDEO_SECONDS * VIDEO_FPS;
-            Bitmap characterSprite = loadCharacterSprite();
+            characterSprite = loadCharacterSprite();
             Thread.sleep(1200);
             CountDownLatch routeReady = new CountDownLatch(1);
             runOnUiThread(() -> mapView.evaluateJavascript(
                     "map.invalidateSize(false);renderRoute(" + routeJson(route) + ");routePoints.length",
                     value -> routeReady.countDown()
             ));
-            routeReady.await(5000, TimeUnit.MILLISECONDS);
-            List<MapSnapshot> mapSnapshots = new ArrayList<>();
+            if (!routeReady.await(5000, TimeUnit.MILLISECONDS)) {
+                throw new IllegalStateException("Map renderer did not become ready in time");
+            }
             final int localSnapshotCount = 36;
             final int transitionSnapshotCount = 8;
             for (int i = 0; i < localSnapshotCount; i++) {
@@ -810,6 +1157,9 @@ public class MainActivity extends Activity {
             String periodLabel = dateFormat.format(from.getTime()) + " - " + dateFormat.format(to.getTime());
             long videoStartNanos = System.nanoTime();
             for (int frame = 0; frame < totalFrames; frame++) {
+                if (destroyed || Thread.currentThread().isInterrupted()) {
+                    throw new InterruptedException("Video generation was cancelled");
+                }
                 float progress = frame / (float) (totalFrames - 1);
                 Canvas canvas = surface.lockCanvas(null);
                 try {
@@ -832,10 +1182,6 @@ public class MainActivity extends Activity {
             }
             encoder.signalEndOfInputStream();
             drainEncoder(encoder, info, muxerState, true);
-            for (MapSnapshot snapshot : mapSnapshots) {
-                if (snapshot.bitmap != null) snapshot.bitmap.recycle();
-            }
-            characterSprite.recycle();
         } finally {
             if (surface != null) surface.release();
             if (encoderStarted) encoder.stop();
@@ -847,6 +1193,10 @@ public class MainActivity extends Activity {
                 }
                 muxer.release();
             }
+            for (MapSnapshot snapshot : mapSnapshots) {
+                if (snapshot.bitmap != null && !snapshot.bitmap.isRecycled()) snapshot.bitmap.recycle();
+            }
+            if (characterSprite != null && !characterSprite.isRecycled()) characterSprite.recycle();
         }
     }
 
@@ -874,10 +1224,17 @@ public class MainActivity extends Activity {
 
     private MapSnapshot captureMapFrame(List<RoutePoint> route, float progress, boolean world,
                                         String cameraCommand, float routeProgress) throws InterruptedException {
+        if (destroyed || Thread.currentThread().isInterrupted()) {
+            throw new InterruptedException("Map capture was cancelled");
+        }
         AtomicReference<Bitmap> result = new AtomicReference<>();
         AtomicReference<MapProjection> projection = new AtomicReference<>();
         CountDownLatch latch = new CountDownLatch(1);
         runOnUiThread(() -> {
+            if (destroyed) {
+                latch.countDown();
+                return;
+            }
             int[] scrollLocation = new int[2];
             int[] mapLocation = new int[2];
             scrollView.getLocationOnScreen(scrollLocation);
@@ -889,11 +1246,19 @@ public class MainActivity extends Activity {
                     + cameraCommand + ";setProgress(" + routeProgress + ",false);" + routeVisibility
                     + ";document.getElementById('panel').style.display='none';({centerLat:map.getCenter().lat,centerLng:map.getCenter().lng,zoom:map.getZoom(),mapWidth:map.getSize().x,mapHeight:map.getSize().y,points:routePoints.map(function(p){var q=map.latLngToContainerPoint([p.lat,p.lng]);return [q.x,q.y]})})";
             mapView.evaluateJavascript(captureState, value -> {
+                if (destroyed) {
+                    latch.countDown();
+                    return;
+                }
                 try {
                     projection.set(MapProjection.from(value));
                 } catch (Exception ignored) {
                 }
                 mapView.postDelayed(() -> {
+                if (destroyed) {
+                    latch.countDown();
+                    return;
+                }
                 int[] location = new int[2];
                 mapView.getLocationOnScreen(location);
                 int width = Math.min(mapView.getWidth(), getWindow().getDecorView().getWidth() - location[0]);
@@ -902,7 +1267,7 @@ public class MainActivity extends Activity {
                     latch.countDown();
                     return;
                 }
-                Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+                Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.RGB_565);
                 // PixelCopy can capture a blank WebView layer while tiles are still
                 // compositing. The WebView is software-rendered, so draw its actual
                 // content into the bitmap after the tile settle delay instead.
@@ -912,7 +1277,15 @@ public class MainActivity extends Activity {
                 }, world ? 1400 : 1000);
             });
         });
-        latch.await(5000, TimeUnit.MILLISECONDS);
+        if (!latch.await(5000, TimeUnit.MILLISECONDS)) {
+            throw new IllegalStateException("Map tiles did not settle in time");
+        }
+        if (destroyed || Thread.currentThread().isInterrupted()) {
+            Bitmap bitmap = result.get();
+            if (bitmap != null) bitmap.recycle();
+            throw new InterruptedException("Map capture was cancelled");
+        }
+        if (result.get() == null) throw new IllegalStateException("Map frame capture returned no image");
         MapSnapshot camera = cameraFor(route, routeProgress, world);
         MapProjection actualProjection = projection.get();
         if (actualProjection != null) {
@@ -1023,9 +1396,13 @@ public class MainActivity extends Activity {
         canvas.save();
         canvas.translate(x, y);
         Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
-        int frameWidth = sprite.getWidth() / 8;
-        int frame = (animationFrame / 5) % 8;
-        Rect source = new Rect(frame * frameWidth, 0, (frame + 1) * frameWidth, sprite.getHeight());
+        int frame = (animationFrame / 5) % CHARACTER_FRAME_LEFT.length;
+        Rect source = new Rect(
+                Math.min(sprite.getWidth(), CHARACTER_FRAME_LEFT[frame]),
+                0,
+                Math.min(sprite.getWidth(), CHARACTER_FRAME_RIGHT[frame]),
+                sprite.getHeight()
+        );
         canvas.drawBitmap(sprite, source, new RectF(-18, -72, 18, 0), paint);
         canvas.restore();
     }
