@@ -302,7 +302,11 @@ public class MainActivity extends Activity {
         }
         createButton.setEnabled(false);
         saveButton.setEnabled(false);
-        status.setText("Saving MP4 video to Gallery...");
+        scanProgress.setIndeterminate(false);
+        scanProgress.setMax(100);
+        scanProgress.setProgress(0);
+        scanProgress.setVisibility(View.VISIBLE);
+        status.setText("Preparing video... 0%");
 
         List<RoutePoint> route = new ArrayList<>(points);
         new Thread(() -> {
@@ -311,12 +315,15 @@ public class MainActivity extends Activity {
                 runOnUiThread(() -> {
                     createButton.setEnabled(true);
                     saveButton.setEnabled(true);
+                    scanProgress.setProgress(100);
+                    scanProgress.setVisibility(View.GONE);
                     status.setText("Saved moving route video to Gallery: " + uri);
                 });
             } catch (Exception e) {
                 runOnUiThread(() -> {
                     createButton.setEnabled(true);
                     saveButton.setEnabled(true);
+                    scanProgress.setVisibility(View.GONE);
                     status.setText("Video save failed: " + e.getMessage());
                 });
             }
@@ -603,9 +610,17 @@ public class MainActivity extends Activity {
                 float cameraProgress = .85f * i / (float) (localSnapshotCount - 1);
                 mapSnapshots.add(captureMapFrame(route, cameraProgress, false));
                 int captured = i + 1;
-                runOnUiThread(() -> status.setText("Preparing map frames... " + captured + " / " + localSnapshotCount));
+                int prepProgress = Math.round(captured * 55f / (localSnapshotCount + 1));
+                runOnUiThread(() -> {
+                    scanProgress.setProgress(prepProgress);
+                    status.setText("Preparing map frames... " + captured + " / " + (localSnapshotCount + 1) + " (" + prepProgress + "%)");
+                });
             }
             mapSnapshots.add(captureMapFrame(route, 1f, true));
+            runOnUiThread(() -> {
+                scanProgress.setProgress(55);
+                status.setText("Preparing map frames... " + (localSnapshotCount + 1) + " / " + (localSnapshotCount + 1) + " (55%)");
+            });
             encoder.start();
             encoderStarted = true;
             muxer = new MediaMuxer(pfd.getFileDescriptor(), MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
@@ -628,9 +643,13 @@ public class MainActivity extends Activity {
                 if (remainingNanos > 0) {
                     Thread.sleep(remainingNanos / 1_000_000L, (int) (remainingNanos % 1_000_000L));
                 }
-                if (frame % VIDEO_FPS == 0) {
+                if (frame % VIDEO_FPS == 0 || frame == totalFrames - 1) {
                     int seconds = Math.round(frame / (float) Math.max(1, totalFrames - 1) * VIDEO_SECONDS);
-                    runOnUiThread(() -> status.setText("Saving MP4 video... " + seconds + " / " + VIDEO_SECONDS + " sec"));
+                    int encodeProgress = 55 + Math.round((frame + 1) * 45f / totalFrames);
+                    runOnUiThread(() -> {
+                        scanProgress.setProgress(encodeProgress);
+                        status.setText("Saving MP4 video... " + seconds + " / " + VIDEO_SECONDS + " sec (" + encodeProgress + "%)");
+                    });
                 }
             }
             encoder.signalEndOfInputStream();
