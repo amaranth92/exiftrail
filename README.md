@@ -11,8 +11,6 @@
   &nbsp; · &nbsp;
   <a href="https://github.com/amaranth92/exiftrail">Source code</a>
   &nbsp; · &nbsp;
-  <a href="LICENSE">MIT license</a>
-  &nbsp; · &nbsp;
   <a href="https://github.com/amaranth92/exiftrail/raw/refs/heads/master/public/downloads/ExifTrail-Android.apk">Download Android APK</a>
 </p>
 

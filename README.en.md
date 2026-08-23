@@ -11,8 +11,6 @@
   &nbsp; · &nbsp;
   <a href="https://github.com/amaranth92/exiftrail">GitHub</a>
   &nbsp; · &nbsp;
-  <a href="LICENSE">MIT license</a>
-  &nbsp; · &nbsp;
   <a href="https://github.com/amaranth92/exiftrail/raw/refs/heads/master/public/downloads/ExifTrail-Android.apk">Download Android APK</a>
 </p>
 
@@ -51,7 +49,7 @@ without enabling a continuous location timeline.
 | Timeline-style route | Photos are sorted by capture time and connected into a route. |
 | Video export | The route becomes a vertical video suitable for sharing. |
 | Android + web | Use the native gallery workflow on Android or select files in a browser. |
-| Open source | MIT-licensed code with no app-store account required to inspect or run it. |
+| Source available | Inspect and run the code without an app-store account. |
 
 ## See it in motion
 
@@ -199,9 +197,3 @@ tests/smoke.spec.ts                  Browser smoke tests
 
 Bug reports, route edge cases, privacy concerns, and small pull requests are
 welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a change.
-
-## License
-
-The project is released under the [MIT License](LICENSE). The Satgat character
-and app icon are generated project assets; see
-[`public/assets/characters/LICENSE.txt`](public/assets/characters/LICENSE.txt).

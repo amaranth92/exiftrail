@@ -11,8 +11,6 @@
   &nbsp; · &nbsp;
   <a href="https://github.com/amaranth92/exiftrail">GitHub</a>
   &nbsp; · &nbsp;
-  <a href="LICENSE">MIT 라이선스</a>
-  &nbsp; · &nbsp;
   <a href="https://github.com/amaranth92/exiftrail/raw/refs/heads/master/public/downloads/ExifTrail-Android.apk">Android APK 다운로드</a>
 </p>
 
@@ -48,7 +46,7 @@ EXIF 정보만으로 Google Timeline과 비슷한 결과를 만들도록 ExifTra
 | 시간순 경로 | 촬영 시각으로 사진을 정렬하고 GPS 좌표를 연결합니다. |
 | 세로형 영상 | 완성된 경로를 공유하기 좋은 세로 영상으로 저장합니다. |
 | Android + 웹 | Android 사진첩을 직접 분석하거나 브라우저에서 사진을 선택할 수 있습니다. |
-| 오픈소스 | MIT 라이선스로 공개하며 앱스토어 계정 없이도 코드를 확인할 수 있습니다. |
+| 소스 공개 | 앱스토어 계정 없이 코드를 확인하고 직접 실행할 수 있습니다. |
 
 ## 결과 예시
 
@@ -182,7 +180,7 @@ Android 빌드는 사진 권한을 허용할 수 있는 실기기 또는 에뮬�
 src/main.tsx                         웹 UI, EXIF 분석, 지도 미리보기, 영상 저장
 src/route.ts                         경로 정규화와 중복 좌표 제거
 public/assets/brand/                  앱 브랜딩
-public/assets/characters/             김삿갓 캐릭터와 라이선스
+public/assets/characters/             김삿갓 캐릭터
 android/app/src/main/java/           네이티브 사진첩 분석과 MP4 렌더링
 android/app/src/main/assets/         Android 런타임 리소스
 tests/smoke.spec.ts                  브라우저 스모크 테스트
@@ -192,9 +190,3 @@ tests/smoke.spec.ts                  브라우저 스모크 테스트
 
 버그 제보, 경로 예외 사례, 개인정보 관련 문제, 작은 Pull Request를 환영합니다.
 변경을 올리기 전에 [CONTRIBUTING.md](CONTRIBUTING.md)를 확인해 주세요.
-
-## 라이선스
-
-프로젝트 코드는 [MIT License](LICENSE)로 공개합니다. 김삿갓 캐릭터와 앱 아이콘은
-프로젝트 생성 에셋이며 [`public/assets/characters/LICENSE.txt`](public/assets/characters/LICENSE.txt)를
-확인해 주세요.
