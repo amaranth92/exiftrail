@@ -178,6 +178,13 @@ button:disabled {
   height: 96px;
   object-fit: contain;
   pointer-events: none;
+  animation: route-character-bob 700ms ease-in-out infinite;
+  transform-origin: 50% 88%;
+}
+
+@keyframes route-character-bob {
+  0%, 100% { transform: translateY(2px) rotate(-2deg); }
+  50% { transform: translateY(-3px) rotate(2deg); }
 }
 
 .empty {

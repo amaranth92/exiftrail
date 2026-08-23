@@ -1,11 +1,7 @@
-Vehicle assets used by ExifTrail
+Route character used by ExifTrail
 
-car.glb and boat.glb: Kenney Car Kit 3.1 and Watercraft Kit 2.1, CC0.
+car.glb: Kenney Car Kit 3.1, CC0.
 https://kenney.nl/assets/car-kit
-https://kenney.nl/assets/watercraft-kit
 
-plane.glb: Airplane-2 by get3dmodels.com, CC-BY.
-https://www.getglb.com/vehicles/airplane-low-poly-2/
-https://creativecommons.org/licenses/by/4.0/
-
-The PNG sprites in sprites/ are transparent renders generated from these models for video export and mobile rendering.
+Only car.glb and sprites/car.png are used by the current route renderer.
+The PNG sprite is a transparent render generated from the model for video export and mobile rendering.

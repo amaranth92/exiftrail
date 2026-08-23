@@ -447,25 +447,29 @@ public class MainActivity extends Activity {
         MediaCodec encoder = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC);
         MediaMuxer muxer = null;
         Surface surface = null;
+        boolean encoderStarted = false;
         try {
             encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
             surface = encoder.createInputSurface();
+            int totalFrames = VIDEO_SECONDS * VIDEO_FPS;
+            Bitmap characterSprite = loadCharacterSprite();
+            Thread.sleep(1200);
+            List<MapSnapshot> mapSnapshots = new ArrayList<>();
+            for (float cameraProgress : new float[]{0f, .16f, .32f, .48f, .64f, .80f}) {
+                mapSnapshots.add(captureMapFrame(route, cameraProgress, false));
+            }
+            mapSnapshots.add(captureMapFrame(route, 1f, true));
             encoder.start();
+            encoderStarted = true;
             muxer = new MediaMuxer(pfd.getFileDescriptor(), MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
 
             MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
             MuxerState muxerState = new MuxerState(muxer);
-            int totalFrames = VIDEO_SECONDS * 18;
-            Bitmap carSprite = loadVehicleSprite("car");
-            Bitmap boatSprite = loadVehicleSprite("boat");
-            Bitmap planeSprite = loadVehicleSprite("plane");
-            Thread.sleep(1200);
-            Bitmap mapBitmap = captureMapFrame(1);
             for (int frame = 0; frame < totalFrames; frame++) {
                 float progress = frame / (float) (totalFrames - 1);
                 Canvas canvas = surface.lockCanvas(null);
                 try {
-                    drawVideoFrame(canvas, route, progress, mapBitmap, carSprite, boatSprite, planeSprite);
+                    drawVideoFrame(canvas, route, progress, mapSnapshots, characterSprite);
                 } finally {
                     surface.unlockCanvasAndPost(canvas);
                 }
@@ -478,13 +482,13 @@ public class MainActivity extends Activity {
             }
             encoder.signalEndOfInputStream();
             drainEncoder(encoder, info, muxerState, true);
-            if (mapBitmap != null) mapBitmap.recycle();
-            carSprite.recycle();
-            boatSprite.recycle();
-            planeSprite.recycle();
+            for (MapSnapshot snapshot : mapSnapshots) {
+                if (snapshot.bitmap != null) snapshot.bitmap.recycle();
+            }
+            characterSprite.recycle();
         } finally {
             if (surface != null) surface.release();
-            encoder.stop();
+            if (encoderStarted) encoder.stop();
             encoder.release();
             if (muxer != null) {
                 try {
@@ -518,18 +522,18 @@ public class MainActivity extends Activity {
         }
     }
 
-    private Bitmap captureMapFrame(float progress) throws InterruptedException {
+    private MapSnapshot captureMapFrame(List<RoutePoint> route, float progress, boolean world) throws InterruptedException {
         AtomicReference<Bitmap> result = new AtomicReference<>();
         CountDownLatch latch = new CountDownLatch(1);
         runOnUiThread(() -> {
             scrollView.scrollTo(0, mapView.getTop());
-            mapView.evaluateJavascript("setProgress(" + progress + ",false);marker.setOpacity(0);line.setStyle({opacity:0});panel.style.display='none'", ignored -> mapView.postDelayed(() -> {
+            mapView.evaluateJavascript("setCamera(" + progress + "," + world + ");setProgress(" + progress + ",false);marker.setOpacity(0);line.setStyle({opacity:0});full.setStyle({opacity:0});panel.style.display='none'", ignored -> mapView.postDelayed(() -> {
                 int[] location = new int[2];
                 mapView.getLocationOnScreen(location);
                 int width = Math.min(mapView.getWidth(), getWindow().getDecorView().getWidth() - location[0]);
                 int height = Math.min(mapView.getHeight(), getWindow().getDecorView().getHeight() - location[1]);
                 if (width <= 0 || height <= 0) {
-                    mapView.evaluateJavascript("marker.setOpacity(1);line.setStyle({opacity:1});panel.style.display='block'", null);
+                    mapView.evaluateJavascript("marker.setOpacity(1);line.setStyle({opacity:1});full.setStyle({opacity:1});panel.style.display='block'", null);
                     latch.countDown();
                     return;
                 }
@@ -538,20 +542,34 @@ public class MainActivity extends Activity {
                 PixelCopy.request(getWindow(), source, bitmap, copyResult -> {
                     if (copyResult == PixelCopy.SUCCESS) result.set(bitmap);
                     else bitmap.recycle();
-                    mapView.evaluateJavascript("marker.setOpacity(1);line.setStyle({opacity:1});panel.style.display='block'", null);
+                    mapView.evaluateJavascript("marker.setOpacity(1);line.setStyle({opacity:1});full.setStyle({opacity:1});panel.style.display='block'", null);
                     latch.countDown();
                 }, new Handler(Looper.getMainLooper()));
-            }, 80));
+            }, world ? 700 : 120));
         });
         latch.await(1500, TimeUnit.MILLISECONDS);
-        return result.get();
+        MapSnapshot camera = cameraFor(route, progress, world);
+        return new MapSnapshot(result.get(), camera.centerLat, camera.centerLng, camera.zoom, camera.world);
     }
 
-    private void drawVideoFrame(Canvas canvas, List<RoutePoint> route, float progress, Bitmap mapBitmap, Bitmap carSprite, Bitmap boatSprite, Bitmap planeSprite) {
+    private void drawVideoFrame(Canvas canvas, List<RoutePoint> route, float progress, List<MapSnapshot> snapshots, Bitmap characterSprite) {
         Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         canvas.drawColor(0xffdbeafe);
-        if (mapBitmap != null) {
-            canvas.drawBitmap(mapBitmap, null, new RectF(0, 210, VIDEO_WIDTH, 1050), paint);
+        RectF mapRect = new RectF(0, 210, VIDEO_WIDTH, 1050);
+        MapSnapshot worldSnapshot = snapshots.get(snapshots.size() - 1);
+        List<MapSnapshot> localSnapshots = snapshots.subList(0, snapshots.size() - 1);
+        int localIndex = Math.min(localSnapshots.size() - 1, Math.max(0, (int) Math.floor((progress / .82f) * localSnapshots.size())));
+        MapSnapshot localSnapshot = localSnapshots.get(localIndex);
+        if (progress >= .86f && worldSnapshot.bitmap != null) {
+            canvas.drawBitmap(worldSnapshot.bitmap, null, mapRect, paint);
+        } else if (progress >= .78f && worldSnapshot.bitmap != null && localSnapshot.bitmap != null) {
+            paint.setAlpha((int) (255 * (1f - Math.min(1f, (progress - .78f) / .12f))));
+            canvas.drawBitmap(localSnapshot.bitmap, null, mapRect, paint);
+            paint.setAlpha((int) (255 * Math.min(1f, (progress - .78f) / .12f)));
+            canvas.drawBitmap(worldSnapshot.bitmap, null, mapRect, paint);
+            paint.setAlpha(255);
+        } else if (localSnapshot.bitmap != null) {
+            canvas.drawBitmap(localSnapshot.bitmap, null, mapRect, paint);
         } else {
             paint.setColor(0xfff8fafc);
             paint.setStrokeWidth(2);
@@ -559,26 +577,30 @@ public class MainActivity extends Activity {
             for (int x = 0; x < VIDEO_WIDTH; x += 80) canvas.drawLine(x, 210, x, 1050, paint);
         }
 
-        int currentIndex = Math.max(0, Math.round((route.size() - 1) * progress));
-        RectF plot = mapBitmap != null
-                ? new RectF(56, 470, VIDEO_WIDTH - 56, 900)
-                : new RectF(56, 266, VIDEO_WIDTH - 56, 994);
-        Bounds bounds = bounds(route);
-        Path full = routePath(route, route.size() - 1, bounds, plot);
+        MapSnapshot frameSnapshot = progress >= .86f ? worldSnapshot : localSnapshot;
+        int currentIndex = Math.max(0, Math.min(route.size() - 1, (int) Math.floor((route.size() - 1) * progress)));
+        float exact = (route.size() - 1) * progress;
+        float fraction = exact - currentIndex;
+        RectF plot = mapRect;
+        float[] currentPos = project(route.get(currentIndex), frameSnapshot, plot, route);
+        float[] nextPos = project(route.get(Math.min(route.size() - 1, currentIndex + 1)), frameSnapshot, plot, route);
+        float x = currentPos[0] + (nextPos[0] - currentPos[0]) * fraction;
+        float y = currentPos[1] + (nextPos[1] - currentPos[1]) * fraction;
+        canvas.save();
+        canvas.clipRect(mapRect);
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeCap(Paint.Cap.ROUND);
         paint.setStrokeJoin(Paint.Join.ROUND);
         paint.setStrokeWidth(12);
         paint.setColor(0x660f172a);
-        canvas.drawPath(full, paint);
-        Path active = routePath(route, currentIndex, bounds, plot);
+        if (frameSnapshot.world) canvas.drawPath(routePath(route, 1f, frameSnapshot, plot, 0), paint);
+        int trailStart = Math.max(0, currentIndex - 80);
+        Path active = routePath(route, progress, frameSnapshot, plot, trailStart);
         paint.setStrokeWidth(14);
         paint.setColor(0xff0ea5e9);
         canvas.drawPath(active, paint);
-        float[] pos = project(route.get(currentIndex), bounds, plot);
-        Bitmap sprite = "plane".equals(vehicleFor(route, currentIndex)) ? planeSprite
-                : "boat".equals(vehicleFor(route, currentIndex)) ? boatSprite : carSprite;
-        drawVehicle(canvas, pos[0], pos[1], sprite);
+        drawVehicle(canvas, x, y, nextPos[0] - currentPos[0], nextPos[1] - currentPos[1], progress, characterSprite);
+        canvas.restore();
 
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(0xff0f172a);
@@ -586,14 +608,14 @@ public class MainActivity extends Activity {
         paint.setColor(Color.WHITE);
         paint.setTextSize(38);
         paint.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        canvas.drawText("ExifTrail", 82, 106, paint);
+        canvas.drawText("A journey in motion", 82, 106, paint);
         paint.setTextSize(25);
         paint.setColor(0xffbfdbfe);
         canvas.drawText(mapDateFormat.format(new Date(route.get(currentIndex).time)), 82, 148, paint);
 
         paint.setColor(0xff0f172a);
         paint.setTextSize(30);
-        canvas.drawText(route.size() + " photo GPS points · " + vehicleFor(route, currentIndex), 56, VIDEO_HEIGHT - 144, paint);
+        canvas.drawText("A moving story built from photo memories", 56, VIDEO_HEIGHT - 144, paint);
         paint.setColor(0xff64748b);
         paint.setTextSize(23);
         canvas.drawText("Created locally from photo EXIF metadata", 56, VIDEO_HEIGHT - 104, paint);
@@ -604,36 +626,55 @@ public class MainActivity extends Activity {
         canvas.drawRoundRect(new RectF(56, VIDEO_HEIGHT - 70, 56 + (VIDEO_WIDTH - 112) * progress, VIDEO_HEIGHT - 52), 99, 99, paint);
     }
 
-    private void drawVehicle(Canvas canvas, float x, float y, Bitmap sprite) {
+    private void drawVehicle(Canvas canvas, float x, float y, float dx, float dy, float progress, Bitmap sprite) {
         if (sprite == null) return;
+        canvas.save();
+        canvas.translate(x, y + (float) Math.sin(progress * Math.PI * 12) * 3f);
+        canvas.rotate(Math.max(-7f, Math.min(7f, (float) Math.toDegrees(Math.atan2(dy, dx)) * .08f)));
+        if (dx < 0) canvas.scale(-1f, 1f);
         Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
-        canvas.drawBitmap(sprite, null, new RectF(x - 92, y - 92, x + 92, y + 92), paint);
+        canvas.drawBitmap(sprite, null, new RectF(-92, -92, 92, 92), paint);
+        canvas.restore();
     }
 
-    private Bitmap loadVehicleSprite(String kind) throws Exception {
-        try (InputStream input = getAssets().open("vehicles/sprites/" + kind + ".png")) {
+    private Bitmap loadCharacterSprite() throws Exception {
+        try (InputStream input = getAssets().open("characters/wanderer.png")) {
             Bitmap sprite = BitmapFactory.decodeStream(input);
-            if (sprite == null) throw new IllegalStateException("Could not load vehicle sprite: " + kind);
+            if (sprite == null) throw new IllegalStateException("Could not load route character sprite");
             return sprite;
         }
     }
 
-    private Path routePath(List<RoutePoint> route, int endIndex, Bounds bounds, RectF plot) {
+    private Path routePath(List<RoutePoint> route, float progress, MapSnapshot snapshot, RectF plot, int startIndex) {
         Path path = new Path();
-        for (int i = 0; i <= endIndex; i++) {
-            float[] pos = project(route.get(i), bounds, plot);
-            if (i == 0) path.moveTo(pos[0], pos[1]);
+        int endIndex = Math.min(route.size() - 1, Math.max(0, (int) Math.floor((route.size() - 1) * progress)));
+        int firstIndex = Math.min(startIndex, endIndex);
+        for (int i = firstIndex; i <= endIndex; i++) {
+            float[] pos = project(route.get(i), snapshot, plot, route);
+            if (i == firstIndex) path.moveTo(pos[0], pos[1]);
             else path.lineTo(pos[0], pos[1]);
+        }
+        if (progress < 1f && endIndex < route.size() - 1 && endIndex >= firstIndex) {
+            float exact = (route.size() - 1) * progress;
+            float fraction = exact - endIndex;
+            float[] from = project(route.get(endIndex), snapshot, plot, route);
+            float[] to = project(route.get(endIndex + 1), snapshot, plot, route);
+            path.lineTo(from[0] + (to[0] - from[0]) * fraction, from[1] + (to[1] - from[1]) * fraction);
         }
         return path;
     }
 
-    private float[] project(RoutePoint point, Bounds bounds, RectF plot) {
-        double latRange = Math.max(bounds.maxLat - bounds.minLat, .0001);
-        double lngRange = Math.max(bounds.maxLng - bounds.minLng, .0001);
-        float x = (float) (plot.left + ((point.lng - bounds.minLng) / lngRange) * plot.width());
-        float y = (float) (plot.bottom - ((point.lat - bounds.minLat) / latRange) * plot.height());
-        return new float[]{x, y};
+    private float[] project(RoutePoint point, MapSnapshot snapshot, RectF plot, List<RoutePoint> route) {
+        double scale = 256d * Math.pow(2d, snapshot.zoom);
+        double pointX = ((point.lng + 180d) / 360d) * scale;
+        double pointSin = Math.sin(Math.toRadians(Math.max(-85.05112878, Math.min(85.05112878, point.lat))));
+        double pointY = (0.5d - Math.log((1d + pointSin) / (1d - pointSin)) / (4d * Math.PI)) * scale;
+        double centerX = ((snapshot.centerLng + 180d) / 360d) * scale;
+        double centerSin = Math.sin(Math.toRadians(Math.max(-85.05112878, Math.min(85.05112878, snapshot.centerLat))));
+        double centerY = (0.5d - Math.log((1d + centerSin) / (1d - centerSin)) / (4d * Math.PI)) * scale;
+        float width = snapshot.bitmap == null ? VIDEO_WIDTH : snapshot.bitmap.getWidth();
+        float height = snapshot.bitmap == null ? 560f : snapshot.bitmap.getHeight();
+        return new float[]{plot.centerX() + (float) ((pointX - centerX) * plot.width() / width), plot.centerY() + (float) ((pointY - centerY) * plot.height() / height)};
     }
 
     private Bounds bounds(List<RoutePoint> route) {
@@ -653,6 +694,29 @@ public class MainActivity extends Activity {
         return b;
     }
 
+    private int localZoom(List<RoutePoint> route) {
+        Bounds b = bounds(route);
+        double span = Math.max(b.maxLat - b.minLat, b.maxLng - b.minLng);
+        if (span > 90) return 3;
+        if (span > 30) return 4;
+        if (span > 8) return 5;
+        if (span > 2) return 7;
+        if (span > .5) return 9;
+        return 12;
+    }
+
+    private MapSnapshot cameraFor(List<RoutePoint> route, float progress, boolean world) {
+        if (world) {
+            return new MapSnapshot(null, 20d, 0d, 1, true);
+        }
+        float exact = Math.max(0f, Math.min(1f, progress)) * (route.size() - 1);
+        int index = Math.min(route.size() - 1, (int) Math.floor(exact));
+        RoutePoint from = route.get(index);
+        RoutePoint to = route.get(Math.min(route.size() - 1, index + 1));
+        float fraction = exact - index;
+        return new MapSnapshot(null, from.lat + (to.lat - from.lat) * fraction, from.lng + (to.lng - from.lng) * fraction, localZoom(route), false);
+    }
+
     private void renderMapRoute(List<RoutePoint> route) {
         StringBuilder json = new StringBuilder("[");
         for (int i = 0; i < route.size(); i++) {
@@ -660,8 +724,7 @@ public class MainActivity extends Activity {
             if (i > 0) json.append(',');
             json.append("{lat:").append(p.lat)
                     .append(",lng:").append(p.lng)
-                    .append(",time:\"").append(mapDateFormat.format(new Date(p.time))).append("\"")
-                    .append(",vehicle:\"").append(vehicleFor(route, i)).append("\"}");
+                    .append(",time:\"").append(mapDateFormat.format(new Date(p.time))).append("\"}");
         }
         json.append(']');
         mapView.evaluateJavascript("renderRoute(" + json + ")", null);
@@ -671,40 +734,28 @@ public class MainActivity extends Activity {
         return "<!doctype html><html><head>"
                 + "<meta name='viewport' content='width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no'>"
                 + "<link rel='stylesheet' href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'>"
-                + "<style>html,body,#map{height:100%;margin:0;background:#dbeafe}.leaflet-container{font:14px system-ui}.panel{position:absolute;z-index:500;left:14px;right:14px;top:14px;background:rgba(15,23,42,.9);color:white;padding:12px 14px;border-radius:16px;font:800 14px system-ui;box-shadow:0 14px 38px rgba(15,23,42,.24)}.panel small{display:block;margin-top:4px;color:#bfdbfe;font-weight:700}.progress{height:5px;margin-top:10px;background:rgba(255,255,255,.16);border-radius:999px;overflow:hidden}.bar{height:100%;width:0;background:#38bdf8;border-radius:999px}.vehicle{border:0;background:transparent}.vehicle img{width:96px;height:96px;object-fit:contain;pointer-events:none}</style>"
+                + "<style>html,body,#map{height:100%;margin:0;background:#dbeafe}.leaflet-container{font:14px system-ui}.panel{position:absolute;z-index:500;left:14px;right:14px;top:14px;background:rgba(15,23,42,.9);color:white;padding:12px 14px;border-radius:16px;font:800 14px system-ui;box-shadow:0 14px 38px rgba(15,23,42,.24)}.panel small{display:block;margin-top:4px;color:#bfdbfe;font-weight:700}.progress{height:5px;margin-top:10px;background:rgba(255,255,255,.16);border-radius:999px;overflow:hidden}.bar{height:100%;width:0;background:#38bdf8;border-radius:999px}.vehicle{border:0;background:transparent}.vehicle img{width:96px;height:96px;object-fit:contain;pointer-events:none;animation:route-character-bob 700ms ease-in-out infinite;transform-origin:50% 88%}@keyframes route-character-bob{0%,100%{transform:translateY(2px) rotate(-2deg)}50%{transform:translateY(-3px) rotate(2deg)}}</style>"
                 + "</head><body><div id='map'></div><div id='panel' class='panel'><span id='place'>Route preview appears here</span><small id='time'>Waiting for photo GPS points</small><div class='progress'><div class='bar' id='bar'></div></div></div>"
                 + "<script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></script>"
                 + "<script>"
                 + "var map=L.map('map',{zoomControl:false,attributionControl:true,preferCanvas:true});"
                 + "L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);"
-                + "map.setView([0,0],2);var full,line,marker,raf,lastPan=0,routePoints=[],latlngs=[];"
+                + "map.setView([0,0],2);var full,line,marker,raf,lastPan=0,routePoints=[],latlngs=[],localZoom=4,cameraMode='local';"
                 + "function ll(p){return [p.lat,p.lng]}"
-                + "function vehicleIcon(kind){kind=kind||'car';return L.divIcon({className:'vehicle',iconSize:[96,96],iconAnchor:[48,48],html:'<img src=\"vehicles/sprites/'+kind+'.png\" width=\"96\" height=\"96\" alt=\"\" />'})}"
-                + "function setProgress(t,follow){if(!routePoints.length)return;var exact=(routePoints.length-1)*Math.max(0,Math.min(1,t));var end=Math.max(0,Math.floor(exact));var visible=latlngs.slice(0,end+1);var cur=routePoints[end];line.setLatLngs(visible);marker.setLatLng(ll(cur));marker.setIcon(vehicleIcon(cur.vehicle));document.getElementById('time').textContent=cur.time;document.getElementById('bar').style.width=(Math.max(0,Math.min(1,t))*100).toFixed(1)+'%';if(follow&&performance.now()-lastPan>550){map.panTo(ll(cur),{animate:true,duration:.25});lastPan=performance.now()}}"
+                + "function vehicleIcon(){return L.divIcon({className:'vehicle',iconSize:[96,96],iconAnchor:[48,48],html:'<img src=\"characters/wanderer.png\" width=\"96\" height=\"96\" alt=\"route character\" />'})}"
+                + "function routeZoom(points){var lats=points.map(function(p){return p.lat}),lngs=points.map(function(p){return p.lng}),span=Math.max(Math.max.apply(null,lats)-Math.min.apply(null,lats),Math.max.apply(null,lngs)-Math.min.apply(null,lngs));return span>90?3:span>30?4:span>8?5:span>2?7:span>.5?9:12}"
+                + "function setCamera(t,world){if(!routePoints.length)return;var exact=(routePoints.length-1)*Math.max(0,Math.min(1,t));var end=Math.min(routePoints.length-1,Math.floor(exact)),next=routePoints[Math.min(routePoints.length-1,end+1)],cur=routePoints[end],f=exact-end;var point=[cur.lat+(next.lat-cur.lat)*f,cur.lng+(next.lng-cur.lng)*f];if(world){map.setView([20,0],1,{animate:false});cameraMode='world'}else{map.setView(point,localZoom,{animate:false});cameraMode='local'}}"
+                + "function setProgress(t,follow){if(!routePoints.length)return;var exact=(routePoints.length-1)*Math.max(0,Math.min(1,t));var end=Math.max(0,Math.floor(exact)),next=routePoints[Math.min(routePoints.length-1,end+1)],cur=routePoints[end],f=exact-end;var point=[cur.lat+(next.lat-cur.lat)*f,cur.lng+(next.lng-cur.lng)*f];var visible=latlngs.slice(0,end+1);visible.push(point);line.setLatLngs(visible);marker.setLatLng(point);document.getElementById('time').textContent=cur.time;document.getElementById('bar').style.width=(Math.max(0,Math.min(1,t))*100).toFixed(1)+'%';if(follow&&performance.now()-lastPan>550){if(t>=.86&&cameraMode!=='world'){map.fitBounds(L.latLngBounds(latlngs),{padding:[30,30],animate:true,duration:.8});cameraMode='world'}else if(t<.86){if(cameraMode!=='local')map.setZoom(localZoom,{animate:false});map.panTo(point,{animate:false});cameraMode='local'}lastPan=performance.now()}}"
                 + "function renderRoute(points){document.getElementById('place').textContent=points.length+' route points found';"
                 + "if(full)map.removeLayer(full);if(line)map.removeLayer(line);if(marker)map.removeLayer(marker);if(raf)cancelAnimationFrame(raf);"
                 + "routePoints=points;latlngs=points.map(ll);"
                 + "full=L.polyline(latlngs,{color:'rgba(15,23,42,.22)',weight:7,lineCap:'round',lineJoin:'round'}).addTo(map);"
                 + "line=L.polyline([], {color:'#0ea5e9',weight:7}).addTo(map);"
-                + "marker=L.marker(ll(points[0]),{icon:vehicleIcon(points[0].vehicle),interactive:false}).addTo(map);"
-                + "map.fitBounds(L.latLngBounds(latlngs),{padding:[54,34]});var start=0,duration=Math.min(28000,Math.max(8500,points.length*45));"
+                + "marker=L.marker(ll(points[0]),{icon:vehicleIcon(),interactive:false}).addTo(map);"
+                + "localZoom=routeZoom(points);setCamera(0,false);var start=0,duration=Math.min(28000,Math.max(8500,points.length*45));"
                 + "setProgress(0,true);function step(ts){if(!start)start=ts;var t=Math.min((ts-start)/duration,1);setProgress(t,true);if(t<1)raf=requestAnimationFrame(step)}"
                 + "raf=requestAnimationFrame(step)}"
                 + "</script></body></html>";
-    }
-
-    private String vehicleFor(List<RoutePoint> route, int index) {
-        if (index <= 0) return "car";
-        RoutePoint current = route.get(index);
-        for (int candidateIndex = index - 1; candidateIndex >= Math.max(0, index - 8); candidateIndex--) {
-            RoutePoint candidate = route.get(candidateIndex);
-            double distance = distanceKm(candidate.lat, candidate.lng, current.lat, current.lng);
-            double hours = Math.max((current.time - candidate.time) / 36e5, 1d / 60d);
-            double speed = distance / hours;
-            if (distance >= 180 || speed >= 220) return "plane";
-            if (distance >= 8 && distance < 80 && speed >= 3 && speed < 80) return "boat";
-        }
-        return "car";
     }
 
     private static double distanceKm(double lat1, double lng1, double lat2, double lng2) {
@@ -745,6 +796,22 @@ public class MainActivity extends Activity {
         double maxLat = -Double.MAX_VALUE;
         double minLng = Double.MAX_VALUE;
         double maxLng = -Double.MAX_VALUE;
+    }
+
+    private static class MapSnapshot {
+        final Bitmap bitmap;
+        final double centerLat;
+        final double centerLng;
+        final int zoom;
+        final boolean world;
+
+        MapSnapshot(Bitmap bitmap, double centerLat, double centerLng, int zoom, boolean world) {
+            this.bitmap = bitmap;
+            this.centerLat = centerLat;
+            this.centerLng = centerLng;
+            this.zoom = zoom;
+            this.world = world;
+        }
     }
 
     private static class MuxerState {

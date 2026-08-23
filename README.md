@@ -20,8 +20,8 @@ Sample export from generated test photos: [`public/demo/exiftrail-sample-route.w
 - Removes very close duplicate points.
 - Flags suspicious GPS jumps.
 - Shows the route on OpenStreetMap via Leaflet.
-- Automatically plays a moving route preview with a rendered 3D vehicle traveling through the route in photo time order.
-- Switches the moving vehicle between a car, boat, and airplane using distance/time heuristics.
+- Automatically plays a moving route preview with one small wandering-traveler character traveling smoothly through the route in photo time order.
+- Follows the route at a local map zoom, then pulls back to the full world route at the end.
 - Exports a vertical 9:16 route video for Shorts, TikTok, Instagram, Reddit, or Threads.
 - Uses the native share sheet when the browser supports sharing generated video files.
 
@@ -50,11 +50,11 @@ Open ExifTrail on the phone, choose From/To, then tap **Allow photos and create 
 
 Tap **Save moving video** after the route is created. The Android app renders a vertical MP4 and saves it to the phone gallery under `Movies/ExifTrail`.
 
-The saved video keeps the visible Leaflet/OpenStreetMap map, then animates the route and a transparent sprite rendered from the same 3D GLB vehicle assets. A fallback grid is used only if the map cannot be captured before export finishes.
+The saved video follows the route through local map views, drawing only the route reached so far. It then fades to a zoomed-out world view where the complete route is visible. The moving character is a generated transparent wanderer sprite with interpolation, direction flip, tilt, and a small walking bounce. A fallback grid is used only if the map cannot be captured before export finishes.
 
 Map note: ExifTrail uses Leaflet + OpenStreetMap tiles. It does not bulk-prefetch map tiles; it only loads visible map tiles while previewing or exporting. Keep the required attribution visible and follow the [OpenStreetMap tile policy](https://operations.osmfoundation.org/policies/tiles/).
 
-Vehicle assets are listed in `public/assets/vehicles/LICENSES.txt` and are copied into the Android app assets as well. The car, boat, and airplane sprites are generated renders of those GLB files. The Kenney car and boat models are CC0; the airplane model is CC-BY and its source is recorded in that file.
+The route character asset and its generation note are listed in `public/assets/characters/LICENSE.txt` and copied into the Android app assets. Legacy vehicle files remain in the repository but are not used by the current renderer.
 
 ### Web Demo
 

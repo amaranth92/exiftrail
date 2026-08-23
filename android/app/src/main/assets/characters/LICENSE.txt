@@ -1,0 +1,3 @@
+Wanderer character
+
+Generated for ExifTrail with OpenAI image generation. This project uses the generated PNG as a small route character. No third-party character asset is included.

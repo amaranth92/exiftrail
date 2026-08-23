@@ -32,11 +32,16 @@ type ScanSummary = {
 type ScanProgress = { done: number; total: number };
 type ExportResult = { blob: Blob; filename: string };
 type DateRange = { from: string; to: string };
+type GeoViewport = { centerLat: number; centerLng: number; zoom: number; width: number; height: number; world: boolean };
+type MapSnapshot = { image: HTMLCanvasElement | null; viewport: GeoViewport };
 const EXIF_CONCURRENCY = Math.max(4, Math.min(8, navigator.hardwareConcurrency || 4));
 const ACCEPTED_IMAGES = "image/*,.jpg,.jpeg,.heic,.heif";
 
 const PHOTO_TYPES = new Set(["image/jpeg", "image/jpg", "image/heic", "image/heif"]);
-type VehicleKind = "car" | "boat" | "plane";
+const ROUTE_SPRITE = "./assets/characters/wanderer.png";
+let activeMapController: {
+  capture: (progress: number, world: boolean) => Promise<MapSnapshot>;
+} | null = null;
 
 function isPhoto(file: File) {
   const lower = file.name.toLowerCase();
@@ -173,40 +178,47 @@ function extensionForMime(mime: string) {
   return mime.includes("mp4") ? "mp4" : "webm";
 }
 
-function distanceKm(a: PhotoPoint, b: PhotoPoint) {
-  const rad = Math.PI / 180;
-  const dLat = (b.lat - a.lat) * rad;
-  const dLng = (b.lng - a.lng) * rad;
-  const sinLat = Math.sin(dLat / 2);
-  const sinLng = Math.sin(dLng / 2);
-  const value = sinLat * sinLat + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * sinLng * sinLng;
-  return 6371 * 2 * Math.asin(Math.sqrt(value));
+function localZoom(points: PhotoPoint[]) {
+  const latSpan = Math.max(...points.map((point) => point.lat)) - Math.min(...points.map((point) => point.lat));
+  const lngSpan = Math.max(...points.map((point) => point.lng)) - Math.min(...points.map((point) => point.lng));
+  const span = Math.max(latSpan, lngSpan);
+  if (span > 90) return 3;
+  if (span > 30) return 4;
+  if (span > 8) return 5;
+  if (span > 2) return 7;
+  if (span > 0.5) return 9;
+  return 12;
 }
 
-function vehicleForPoint(points: PhotoPoint[], index: number): VehicleKind {
-  if (index <= 0) return "car";
-  const current = points[index];
-  for (let candidateIndex = index - 1; candidateIndex >= Math.max(0, index - 8); candidateIndex -= 1) {
-    const candidate = points[candidateIndex];
-    const distance = distanceKm(candidate, current);
-    const hours = Math.max((+current.time - +candidate.time) / 3_600_000, 1 / 60);
-    const speed = distance / hours;
-    if (distance >= 180 || speed >= 220) return "plane";
-    if (distance >= 8 && distance < 80 && speed >= 3 && speed < 80) return "boat";
-  }
-  return "car";
-}
-
-function vehicleSprite(kind: VehicleKind) {
-  return `./assets/vehicles/sprites/${kind}.png`;
-}
-
-function vehicleIcon(kind: VehicleKind) {
+function vehicleIcon() {
   return L.divIcon({
     className: "vehicle-marker",
     iconSize: [96, 96],
     iconAnchor: [48, 48],
-    html: `<img src="${vehicleSprite(kind)}" width="96" height="96" alt="${kind} 3D vehicle" />`,
+    html: `<img src="${ROUTE_SPRITE}" width="96" height="96" alt="route character" />`,
+  });
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function projectViewport(points: PhotoPoint[], viewport: GeoViewport, width: number, height: number) {
+  const scale = 256 * 2 ** viewport.zoom;
+  const centerX = ((viewport.centerLng + 180) / 360) * scale;
+  const centerLat = Math.max(-85.05112878, Math.min(85.05112878, viewport.centerLat));
+  const centerSin = Math.sin((centerLat * Math.PI) / 180);
+  const centerY = (0.5 - Math.log((1 + centerSin) / (1 - centerSin)) / (4 * Math.PI)) * scale;
+  return points.map((point) => {
+    const lat = Math.max(-85.05112878, Math.min(85.05112878, point.lat));
+    const sin = Math.sin((lat * Math.PI) / 180);
+    const x = ((point.lng + 180) / 360) * scale;
+    const y = (0.5 - Math.log((1 + sin) / (1 - sin)) / (4 * Math.PI)) * scale;
+    return {
+      ...point,
+      x: width / 2 + ((x - centerX) * width) / viewport.width,
+      y: height / 2 + ((y - centerY) * height) / viewport.height,
+    };
   });
 }
 
@@ -253,22 +265,14 @@ async function exportVideo(points: PhotoPoint[], tripLabel: string): Promise<Exp
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Canvas is not available.");
 
-  const route = project(active, canvas.width, 860);
+  const fallbackViewport: GeoViewport = { centerLat: active[0].lat, centerLng: active[0].lng, zoom: localZoom(active), width: 1, height: 1, world: false };
   const thumbs = await Promise.all(active.slice(0, 8).map((point) => loadImage(point.url)));
-  const vehicleSprites = {
-    car: await loadImage(vehicleSprite("car")),
-    boat: await loadImage(vehicleSprite("boat")),
-    plane: await loadImage(vehicleSprite("plane")),
-  } satisfies Record<VehicleKind, HTMLImageElement>;
-  const mapElement = document.querySelector<HTMLElement>(".map");
-  const mapImage = mapElement
-    ? await html2canvas(mapElement, {
-        backgroundColor: "#dbeafe",
-        imageTimeout: 15_000,
-        logging: false,
-        useCORS: true,
-      })
-    : null;
+  const sprite = await loadImage(ROUTE_SPRITE);
+  const snapshots: MapSnapshot[] = [];
+  if (activeMapController) {
+    for (const progress of [0, 0.2, 0.4, 0.6, 0.8]) snapshots.push(await activeMapController.capture(progress, false));
+    snapshots.push(await activeMapController.capture(1, true));
+  }
   const stream = canvas.captureStream(30);
   const options = mime ? { mimeType: mime } : undefined;
   const recorder = new MediaRecorder(stream, options);
@@ -279,7 +283,8 @@ async function exportVideo(points: PhotoPoint[], tripLabel: string): Promise<Exp
   const frames = 270;
   for (let frame = 0; frame < frames; frame += 1) {
     const t = frame / (frames - 1);
-    drawVideoFrame(ctx, canvas, route, active, thumbs, vehicleSprites, mapImage, t, tripLabel);
+    const snapshot = snapshots.at(-1) || { image: null, viewport: fallbackViewport };
+    drawVideoFrame(ctx, canvas, active, thumbs, sprite, snapshots, snapshot, t, tripLabel);
     await new Promise((resolve) => requestAnimationFrame(resolve));
   }
   recorder.stop();
@@ -293,20 +298,35 @@ async function exportVideo(points: PhotoPoint[], tripLabel: string): Promise<Exp
 function drawVideoFrame(
   ctx: CanvasRenderingContext2D,
   canvas: HTMLCanvasElement,
-  route: Array<PhotoPoint & { x: number; y: number }>,
   points: PhotoPoint[],
   thumbs: HTMLImageElement[],
-  vehicleSprites: Record<VehicleKind, HTMLImageElement>,
-  mapImage: HTMLCanvasElement | null,
+  sprite: HTMLImageElement,
+  snapshots: MapSnapshot[],
+  fallback: MapSnapshot,
   t: number,
   tripLabel: string,
 ) {
   ctx.fillStyle = "#0b1020";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  if (mapImage) {
-    ctx.drawImage(mapImage, 0, 220, canvas.width, 860);
-  } else {
+  const localSnapshots = snapshots.slice(0, -1);
+  const worldSnapshot = snapshots.at(-1);
+  const localIndex = Math.min(localSnapshots.length - 1, Math.floor((t / 0.82) * localSnapshots.length));
+  const localSnapshot = localSnapshots[localIndex] || fallback;
+  const useWorld = t >= 0.86 && Boolean(worldSnapshot);
+  const route = projectViewport(points, useWorld && worldSnapshot ? worldSnapshot.viewport : localSnapshot.viewport, canvas.width, 860);
+  if (useWorld && worldSnapshot?.image) {
+    ctx.drawImage(worldSnapshot.image, 0, 220, canvas.width, 860);
+  } else if (t >= 0.78 && worldSnapshot?.image && localSnapshot.image) {
+    ctx.globalAlpha = Math.min(1, (t - 0.78) / 0.12);
+    ctx.drawImage(localSnapshot.image, 0, 220, canvas.width, 860);
+    ctx.globalAlpha = 1 - Math.min(1, (t - 0.78) / 0.12);
+    ctx.drawImage(worldSnapshot.image, 0, 220, canvas.width, 860);
+    ctx.globalAlpha = 1;
+  } else if (localSnapshot.image) {
+    ctx.drawImage(localSnapshot.image, 0, 220, canvas.width, 860);
+  }
+  if (!localSnapshot.image && !worldSnapshot?.image) {
     ctx.fillStyle = "#dbeafe";
     ctx.fillRect(0, 220, canvas.width, 860);
     ctx.strokeStyle = "rgba(148, 163, 184, .24)";
@@ -327,38 +347,44 @@ function drawVideoFrame(
 
   ctx.font = "700 62px Inter, system-ui";
   ctx.fillStyle = "#f8fafc";
-  ctx.fillText("ExifTrail", 72, 120);
+  ctx.fillText(tripLabel || "A journey in motion", 72, 120);
   ctx.font = "34px Inter, system-ui";
   ctx.fillStyle = "#94a3b8";
-  ctx.fillText(tripLabel || "Travel route rebuilt from local photo metadata", 72, 174);
+  ctx.fillText(`${formatDate(points[0].time)} - ${formatDate(points.at(-1)!.time)}`, 72, 174);
 
   ctx.save();
   ctx.translate(0, 220);
   ctx.strokeStyle = "rgba(15,23,42,.26)";
   ctx.lineWidth = 12;
   ctx.lineJoin = "round";
-  drawPolyline(ctx, route, 1);
+  const currentIndex = Math.min(route.length - 1, Math.floor(t * (route.length - 1)));
+  const trailStart = Math.max(0, currentIndex - 80);
+  if (useWorld) drawPolyline(ctx, route, 1, 0);
 
   ctx.strokeStyle = "#0ea5e9";
   ctx.lineWidth = 14;
   ctx.shadowBlur = 18;
   ctx.shadowColor = "#0ea5e9";
-  drawPolyline(ctx, route, t);
+  drawPolyline(ctx, route, t, trailStart);
   ctx.shadowBlur = 0;
 
-  const currentIndex = Math.min(route.length - 1, Math.floor(t * route.length));
+  const exact = (route.length - 1) * t;
+  const next = route[Math.min(route.length - 1, currentIndex + 1)];
   const current = route[currentIndex];
-  drawVehicle(ctx, current.x, current.y, vehicleForPoint(points, currentIndex), vehicleSprites);
+  const mix = exact - currentIndex;
+  const x = current.x + (next.x - current.x) * mix;
+  const y = current.y + (next.y - current.y) * mix;
+  drawVehicle(ctx, x, y, next.x - current.x, next.y - current.y, t, sprite);
   ctx.restore();
 
   ctx.fillStyle = "#111827";
   ctx.fillRect(0, 1320, canvas.width, 600);
   ctx.fillStyle = "#f8fafc";
   ctx.font = "700 44px Inter, system-ui";
-  ctx.fillText(`${formatDate(route[0].time)} - ${formatDate(route.at(-1)!.time)}`, 72, 1406);
+  ctx.fillText("A moving story built from photo memories", 72, 1406);
   ctx.font = "30px Inter, system-ui";
   ctx.fillStyle = "#cbd5e1";
-  ctx.fillText(`${route.length} photo points · ${totalDistance(route).toFixed(1)} km`, 72, 1458);
+  ctx.fillText(`${formatDate(points[0].time)} - ${formatDate(points.at(-1)!.time)}`, 72, 1458);
 
   thumbs.forEach((img, index) => {
     const x = 72 + (index % 4) * 238;
@@ -376,20 +402,25 @@ function drawVehicle(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
-  kind: VehicleKind,
-  sprites: Record<VehicleKind, HTMLImageElement>,
+  dx: number,
+  dy: number,
+  progress: number,
+  sprite: HTMLImageElement,
 ) {
   ctx.save();
-  ctx.translate(x, y);
-  ctx.drawImage(sprites[kind], -96, -96, 192, 192);
+  const bob = Math.sin(progress * Math.PI * 12) * 3;
+  ctx.translate(x, y + bob);
+  ctx.rotate(Math.max(-0.12, Math.min(0.12, Math.atan2(dy, dx) * 0.08)));
+  if (dx < 0) ctx.scale(-1, 1);
+  ctx.drawImage(sprite, -96, -96, 192, 192);
   ctx.restore();
 }
 
-function drawPolyline(ctx: CanvasRenderingContext2D, route: Array<{ x: number; y: number }>, progress: number) {
+function drawPolyline(ctx: CanvasRenderingContext2D, route: Array<{ x: number; y: number }>, progress: number, startIndex = 0) {
   const last = Math.max(1, Math.floor((route.length - 1) * progress));
   ctx.beginPath();
-  ctx.moveTo(route[0].x, route[0].y);
-  for (let i = 1; i <= last; i += 1) ctx.lineTo(route[i].x, route[i].y);
+  ctx.moveTo(route[startIndex].x, route[startIndex].y);
+  for (let i = startIndex + 1; i <= last; i += 1) ctx.lineTo(route[i].x, route[i].y);
   ctx.stroke();
 }
 
@@ -402,6 +433,7 @@ function RouteMap({ points, progress }: { points: PhotoPoint[]; progress: number
   const mapRef = useRef<L.Map | null>(null);
   const routeRef = useRef<L.Polyline | null>(null);
   const markerRef = useRef<L.Marker | null>(null);
+  const cameraModeRef = useRef<"local" | "world">("local");
 
   useEffect(() => {
     if (!divRef.current || mapRef.current) return;
@@ -411,7 +443,7 @@ function RouteMap({ points, progress }: { points: PhotoPoint[]; progress: number
       maxZoom: 19,
     }).addTo(mapRef.current);
     routeRef.current = L.polyline([], { color: "#0ea5e9", weight: 5 }).addTo(mapRef.current);
-    markerRef.current = L.marker([0, 0], { icon: vehicleIcon("car"), interactive: false }).addTo(mapRef.current);
+    markerRef.current = L.marker([0, 0], { icon: vehicleIcon(), interactive: false }).addTo(mapRef.current);
   }, []);
 
   useEffect(() => {
@@ -426,9 +458,39 @@ function RouteMap({ points, progress }: { points: PhotoPoint[]; progress: number
     route.setLatLngs(visible);
     const currentIndex = Math.min(active.length - 1, Math.max(0, Math.ceil(active.length * progress) - 1));
     marker.setLatLng(visible.at(-1)!);
-    marker.setIcon(vehicleIcon(vehicleForPoint(active, currentIndex)));
-    map.fitBounds(L.latLngBounds(latLngs), { padding: [30, 30] });
+    marker.setIcon(vehicleIcon());
+    if (progress >= 0.86) {
+      if (cameraModeRef.current !== "world") {
+        map.fitBounds(L.latLngBounds(latLngs), { padding: [30, 30], animate: true, duration: 0.8 });
+        cameraModeRef.current = "world";
+      }
+    } else {
+      if (cameraModeRef.current !== "local") map.setZoom(localZoom(active), { animate: false });
+      cameraModeRef.current = "local";
+      map.panTo(visible.at(-1)!, { animate: false });
+    }
   }, [points, progress]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    const element = divRef.current;
+    const active = points.filter((point) => point.enabled && !point.suspicious);
+    if (!map || !element || active.length < 2) return;
+    activeMapController = {
+      capture: async (value, world) => {
+        const index = Math.min(active.length - 1, Math.floor(value * (active.length - 1)));
+        if (world) map.setView([20, 0], 1, { animate: false });
+        else map.setView([active[index].lat, active[index].lng], localZoom(active), { animate: false });
+        await wait(350);
+        const image = await html2canvas(element, { backgroundColor: "#dbeafe", imageTimeout: 3_000, logging: false, useCORS: true });
+        const size = map.getSize();
+        return { image, viewport: { centerLat: map.getCenter().lat, centerLng: map.getCenter().lng, zoom: map.getZoom(), width: size.x, height: size.y, world } };
+      },
+    };
+    return () => {
+      activeMapController = null;
+    };
+  }, [points]);
 
   return <div className="map" ref={divRef} />;
 }
