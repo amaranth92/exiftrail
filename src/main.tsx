@@ -374,7 +374,7 @@ function drawVideoFrame(
   const mix = exact - currentIndex;
   const x = current.x + (next.x - current.x) * mix;
   const y = current.y + (next.y - current.y) * mix;
-  drawVehicle(ctx, x, y, next.x - current.x, next.y - current.y, t, sprite);
+  drawVehicle(ctx, x, y, next.x - current.x, t, sprite);
   ctx.restore();
 
   ctx.fillStyle = "#111827";
@@ -403,14 +403,12 @@ function drawVehicle(
   x: number,
   y: number,
   dx: number,
-  dy: number,
   progress: number,
   sprite: HTMLImageElement,
 ) {
   ctx.save();
-  const bob = Math.sin(progress * Math.PI * 12) * 3;
+  const bob = Math.sin(progress * Math.PI * 8) * 2;
   ctx.translate(x, y + bob);
-  ctx.rotate(Math.max(-0.12, Math.min(0.12, Math.atan2(dy, dx) * 0.08)));
   if (dx < 0) ctx.scale(-1, 1);
   ctx.drawImage(sprite, -96, -96, 192, 192);
   ctx.restore();
