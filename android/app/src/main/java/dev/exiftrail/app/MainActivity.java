@@ -582,8 +582,12 @@ public class MainActivity extends Activity {
             Bitmap characterSprite = loadCharacterSprite();
             Thread.sleep(1200);
             List<MapSnapshot> mapSnapshots = new ArrayList<>();
-            for (float cameraProgress : new float[]{0f, .16f, .32f, .48f, .64f, .80f}) {
+            final int localSnapshotCount = 27;
+            for (int i = 0; i < localSnapshotCount; i++) {
+                float cameraProgress = .85f * i / (float) (localSnapshotCount - 1);
                 mapSnapshots.add(captureMapFrame(route, cameraProgress, false));
+                int captured = i + 1;
+                runOnUiThread(() -> status.setText("Preparing map frames... " + captured + " / " + localSnapshotCount));
             }
             mapSnapshots.add(captureMapFrame(route, 1f, true));
             encoder.start();
@@ -592,6 +596,7 @@ public class MainActivity extends Activity {
 
             MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
             MuxerState muxerState = new MuxerState(muxer);
+            long videoStartNanos = System.nanoTime();
             for (int frame = 0; frame < totalFrames; frame++) {
                 float progress = frame / (float) (totalFrames - 1);
                 Canvas canvas = surface.lockCanvas(null);
@@ -601,7 +606,11 @@ public class MainActivity extends Activity {
                     surface.unlockCanvasAndPost(canvas);
                 }
                 drainEncoder(encoder, info, muxerState, false);
-                Thread.sleep(1000L / VIDEO_FPS);
+                long targetNanos = videoStartNanos + (frame + 1L) * 1_000_000_000L / VIDEO_FPS;
+                long remainingNanos = targetNanos - System.nanoTime();
+                if (remainingNanos > 0) {
+                    Thread.sleep(remainingNanos / 1_000_000L, (int) (remainingNanos % 1_000_000L));
+                }
                 if (frame % VIDEO_FPS == 0) {
                     int seconds = Math.round(frame / (float) Math.max(1, totalFrames - 1) * VIDEO_SECONDS);
                     runOnUiThread(() -> status.setText("Saving MP4 video... " + seconds + " / " + VIDEO_SECONDS + " sec"));
@@ -659,9 +668,7 @@ public class MainActivity extends Activity {
             mapView.getLocationOnScreen(mapLocation);
             int targetScroll = scrollView.getScrollY() + mapLocation[1] - scrollLocation[1];
             scrollView.scrollTo(0, Math.max(0, targetScroll));
-            String routeVisibility = world
-                    ? "marker.setOpacity(1);line.setStyle({opacity:1});full.setStyle({opacity:0})"
-                    : "marker.setOpacity(0);line.setStyle({opacity:0});full.setStyle({opacity:0})";
+            String routeVisibility = "marker.setOpacity(1);line.setStyle({opacity:1});full.setStyle({opacity:0})";
             mapView.evaluateJavascript("setCamera(" + progress + "," + world + ");setProgress(" + progress + ",false);" + routeVisibility + ";panel.style.display='none'", ignored -> mapView.postDelayed(() -> {
                 int[] location = new int[2];
                 mapView.getLocationOnScreen(location);
@@ -693,7 +700,7 @@ public class MainActivity extends Activity {
         RectF mapRect = new RectF(0, 210, VIDEO_WIDTH, 1050);
         MapSnapshot worldSnapshot = snapshots.get(snapshots.size() - 1);
         List<MapSnapshot> localSnapshots = snapshots.subList(0, snapshots.size() - 1);
-        int localIndex = Math.min(localSnapshots.size() - 1, Math.max(0, (int) Math.floor((progress / .82f) * localSnapshots.size())));
+        int localIndex = Math.min(localSnapshots.size() - 1, Math.max(0, Math.round(Math.min(progress, .85f) / .85f * (localSnapshots.size() - 1))));
         MapSnapshot localSnapshot = localSnapshots.get(localIndex);
         if (progress >= .86f && worldSnapshot.bitmap != null) {
             drawMapBitmap(canvas, worldSnapshot.bitmap, mapRect, paint);
@@ -729,7 +736,7 @@ public class MainActivity extends Activity {
         // The world snapshot already contains Leaflet's complete route. Keep
         // native projection for local animation only so the final frame cannot
         // drift from the map renderer used by the preview.
-        if (!frameSnapshot.world || frameSnapshot.bitmap == null) {
+        if (frameSnapshot.bitmap == null) {
             paint.setStrokeWidth(8);
             paint.setColor(0x660f172a);
             if (frameSnapshot.world) canvas.drawPath(routePath(route, 1f, frameSnapshot, plot, 0), paint);
@@ -739,7 +746,7 @@ public class MainActivity extends Activity {
             paint.setColor(0xff0ea5e9);
             canvas.drawPath(active, paint);
         }
-        if (!frameSnapshot.world) {
+        if (frameSnapshot.bitmap == null) {
             drawVehicle(canvas, x, y, nextPos[0] - currentPos[0], animationFrame, characterSprite);
         }
         canvas.restore();
@@ -926,7 +933,7 @@ public class MainActivity extends Activity {
                 + "full=L.polyline(latlngs,{color:'rgba(15,23,42,.22)',weight:7,lineCap:'round',lineJoin:'round'}).addTo(map);"
                 + "line=L.polyline([], {color:'#0ea5e9',weight:7}).addTo(map);"
                 + "marker=L.marker(ll(points[0]),{icon:vehicleIcon(),interactive:false}).addTo(map);"
-                + "localZoom=routeZoom(points);setCamera(0,false);var start=0,duration=Math.min(28000,Math.max(8500,points.length*45));"
+                + "localZoom=routeZoom(points);setCamera(0,false);var start=0,duration=10000;"
                 + "setProgress(0,true);function step(ts){if(!start)start=ts;var t=Math.min((ts-start)/duration,1);setProgress(t,true);if(t<1)raf=requestAnimationFrame(step)}"
                 + "raf=requestAnimationFrame(step)}"
                 + "</script></body></html>";
