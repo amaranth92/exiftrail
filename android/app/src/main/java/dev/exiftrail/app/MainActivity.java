@@ -612,12 +612,13 @@ public class MainActivity extends Activity {
 
             MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
             MuxerState muxerState = new MuxerState(muxer);
+            String periodLabel = dateFormat.format(from.getTime()) + " - " + dateFormat.format(to.getTime());
             long videoStartNanos = System.nanoTime();
             for (int frame = 0; frame < totalFrames; frame++) {
                 float progress = frame / (float) (totalFrames - 1);
                 Canvas canvas = surface.lockCanvas(null);
                 try {
-                    drawVideoFrame(canvas, route, progress, frame, mapSnapshots, characterSprite, outputScale);
+                    drawVideoFrame(canvas, route, progress, frame, mapSnapshots, characterSprite, outputScale, periodLabel);
                 } finally {
                     surface.unlockCanvasAndPost(canvas);
                 }
@@ -684,7 +685,9 @@ public class MainActivity extends Activity {
             mapView.getLocationOnScreen(mapLocation);
             int targetScroll = scrollView.getScrollY() + mapLocation[1] - scrollLocation[1];
             scrollView.scrollTo(0, Math.max(0, targetScroll));
-            String routeVisibility = "marker.setOpacity(1);line.setStyle({opacity:1});full.setStyle({opacity:0})";
+            String routeVisibility = world
+                    ? "marker.setOpacity(0);line.setStyle({opacity:0});full.setStyle({opacity:1})"
+                    : "marker.setOpacity(0);line.setStyle({opacity:0});full.setStyle({opacity:0})";
             mapView.evaluateJavascript("setCamera(" + progress + "," + world + ");setProgress(" + progress + ",false);" + routeVisibility + ";panel.style.display='none'", ignored -> mapView.postDelayed(() -> {
                 int[] location = new int[2];
                 mapView.getLocationOnScreen(location);
@@ -710,7 +713,7 @@ public class MainActivity extends Activity {
         return new MapSnapshot(result.get(), camera.centerLat, camera.centerLng, camera.zoom, camera.world);
     }
 
-    private void drawVideoFrame(Canvas canvas, List<RoutePoint> route, float progress, int animationFrame, List<MapSnapshot> snapshots, Bitmap characterSprite, float outputScale) {
+    private void drawVideoFrame(Canvas canvas, List<RoutePoint> route, float progress, int animationFrame, List<MapSnapshot> snapshots, Bitmap characterSprite, float outputScale, String periodLabel) {
         Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         canvas.drawColor(0xffdbeafe);
         canvas.save();
@@ -718,7 +721,10 @@ public class MainActivity extends Activity {
         RectF mapRect = new RectF(0, 210, VIDEO_WIDTH, 1050);
         MapSnapshot worldSnapshot = snapshots.get(snapshots.size() - 1);
         List<MapSnapshot> localSnapshots = snapshots.subList(0, snapshots.size() - 1);
-        int localIndex = Math.min(localSnapshots.size() - 1, Math.max(0, Math.round(Math.min(progress, .85f) / .85f * (localSnapshots.size() - 1))));
+        float localPosition = Math.min(progress, .85f) / .85f * (localSnapshots.size() - 1);
+        int localIndex = Math.min(localSnapshots.size() - 1, Math.max(0, (int) Math.floor(localPosition)));
+        MapSnapshot nextLocalSnapshot = localSnapshots.get(Math.min(localSnapshots.size() - 1, localIndex + 1));
+        float localBlend = localPosition - localIndex;
         MapSnapshot localSnapshot = localSnapshots.get(localIndex);
         if (progress >= .86f && worldSnapshot.bitmap != null) {
             drawMapBitmap(canvas, worldSnapshot.bitmap, mapRect, paint);
@@ -729,7 +735,13 @@ public class MainActivity extends Activity {
             drawMapBitmap(canvas, worldSnapshot.bitmap, mapRect, paint);
             paint.setAlpha(255);
         } else if (localSnapshot.bitmap != null) {
+            paint.setAlpha((int) (255 * (1f - localBlend)));
             drawMapBitmap(canvas, localSnapshot.bitmap, mapRect, paint);
+            if (nextLocalSnapshot.bitmap != null && nextLocalSnapshot != localSnapshot) {
+                paint.setAlpha((int) (255 * localBlend));
+                drawMapBitmap(canvas, nextLocalSnapshot.bitmap, mapRect, paint);
+            }
+            paint.setAlpha(255);
         } else {
             paint.setColor(0xfff8fafc);
             paint.setStrokeWidth(2);
@@ -751,20 +763,14 @@ public class MainActivity extends Activity {
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeCap(Paint.Cap.ROUND);
         paint.setStrokeJoin(Paint.Join.ROUND);
-        // The world snapshot already contains Leaflet's complete route. Keep
-        // native projection for local animation only so the final frame cannot
-        // drift from the map renderer used by the preview.
-        if (frameSnapshot.bitmap == null) {
-            paint.setStrokeWidth(8);
+        if (!frameSnapshot.world) {
+            Path visibleRoute = routePath(route, progress, frameSnapshot, plot, 0);
+            paint.setStrokeWidth(9);
             paint.setColor(0x660f172a);
-            if (frameSnapshot.world) canvas.drawPath(routePath(route, 1f, frameSnapshot, plot, 0), paint);
-            int trailStart = Math.max(0, currentIndex - 80);
-            Path active = routePath(route, progress, frameSnapshot, plot, trailStart);
-            paint.setStrokeWidth(10);
+            canvas.drawPath(visibleRoute, paint);
+            paint.setStrokeWidth(6);
             paint.setColor(0xff0ea5e9);
-            canvas.drawPath(active, paint);
-        }
-        if (frameSnapshot.bitmap == null) {
+            canvas.drawPath(visibleRoute, paint);
             drawVehicle(canvas, x, y, nextPos[0] - currentPos[0], animationFrame, characterSprite);
         }
         canvas.restore();
@@ -779,6 +785,9 @@ public class MainActivity extends Activity {
         paint.setTextSize(25);
         paint.setColor(0xffbfdbfe);
         canvas.drawText(mapDateFormat.format(new Date(route.get(currentIndex).time)), 82, 148, paint);
+        paint.setTextSize(20);
+        paint.setColor(0xffdbeafe);
+        canvas.drawText("Period " + periodLabel, 82, 170, paint);
 
         paint.setColor(0xff0f172a);
         paint.setTextSize(30);
@@ -807,7 +816,7 @@ public class MainActivity extends Activity {
         int frameWidth = sprite.getWidth() / 8;
         int frame = (animationFrame / 3) % 8;
         Rect source = new Rect(frame * frameWidth, 0, (frame + 1) * frameWidth, sprite.getHeight());
-        canvas.drawBitmap(sprite, source, new RectF(-24, -48, 24, 48), paint);
+        canvas.drawBitmap(sprite, source, new RectF(-18, -72, 18, 0), paint);
         canvas.restore();
     }
 
@@ -840,17 +849,9 @@ public class MainActivity extends Activity {
     private RouteLocation locationAt(List<RoutePoint> route, float progress) {
         if (route.size() < 2) return new RouteLocation(0, 0f);
         float clamped = Math.max(0f, Math.min(1f, progress));
-        long firstTime = route.get(0).time;
-        long lastTime = route.get(route.size() - 1).time;
-        long targetTime = firstTime + Math.round((lastTime - firstTime) * clamped);
-        int index = 0;
-        while (index < route.size() - 2 && route.get(index + 1).time <= targetTime) index += 1;
-        long segmentStart = route.get(index).time;
-        long segmentEnd = route.get(index + 1).time;
-        float fraction = segmentEnd <= segmentStart
-                ? 0f
-                : (targetTime - segmentStart) / (float) (segmentEnd - segmentStart);
-        return new RouteLocation(index, Math.max(0f, Math.min(1f, fraction)));
+        float exact = clamped * (route.size() - 1);
+        int index = Math.min(route.size() - 2, (int) Math.floor(exact));
+        return new RouteLocation(index, exact - index);
     }
 
     private float[] project(RoutePoint point, MapSnapshot snapshot, RectF plot, List<RoutePoint> route) {
@@ -960,7 +961,7 @@ public class MainActivity extends Activity {
                 + "function ll(p){return [p.lat,p.lng]}"
                 + "function vehicleIcon(){return L.divIcon({className:'vehicle',iconSize:[32,64],iconAnchor:[16,58],html:'<span class=\"route-character-sprite\" role=\"img\" aria-label=\"route character\"></span>'})}"
                 + "function routeZoom(points){var lats=points.map(function(p){return p.lat}),lngs=points.map(function(p){return p.lng}),span=Math.max(Math.max.apply(null,lats)-Math.min.apply(null,lats),Math.max.apply(null,lngs)-Math.min.apply(null,lngs));return span>90?3:span>30?4:span>8?5:span>2?7:span>.5?9:span>.1?11:span>.02?13:span>.005?15:17}"
-                + "function routeAt(t){var clamped=Math.max(0,Math.min(1,t)),target=routePoints[0].time+(routePoints[routePoints.length-1].time-routePoints[0].time)*clamped,end=0;while(end<routePoints.length-2&&routePoints[end+1].time<=target)end++;var cur=routePoints[end],next=routePoints[Math.min(routePoints.length-1,end+1)],span=next.time-cur.time,f=span<=0?0:(target-cur.time)/span;return {end:end,cur:cur,next:next,f:Math.max(0,Math.min(1,f)),point:[cur.lat+(next.lat-cur.lat)*f,cur.lng+(next.lng-cur.lng)*f]}}"
+                + "function routeAt(t){var clamped=Math.max(0,Math.min(1,t)),exact=clamped*(routePoints.length-1),end=Math.min(routePoints.length-2,Math.floor(exact)),cur=routePoints[end],next=routePoints[Math.min(routePoints.length-1,end+1)],f=exact-end;return {end:end,cur:cur,next:next,f:f,point:[cur.lat+(next.lat-cur.lat)*f,cur.lng+(next.lng-cur.lng)*f]}}"
                 + "function setCamera(t,world){if(!routePoints.length)return;var a=routeAt(t),point=a.point;if(world){map.fitBounds(L.latLngBounds(latlngs),{padding:[30,30],maxZoom:2,animate:false});cameraMode='world'}else{map.setView(point,localZoom,{animate:false});cameraMode='local'}}"
                 + "function setProgress(t,follow){if(!routePoints.length)return;var a=routeAt(t),point=a.point,visible=latlngs.slice(0,a.end+1);visible.push(point);line.setLatLngs(visible);marker.setLatLng(point);document.getElementById('time').textContent=a.cur.label;document.getElementById('bar').style.width=(Math.max(0,Math.min(1,t))*100).toFixed(1)+'%';if(follow&&performance.now()-lastPan>80){if(t>=.86&&cameraMode!=='world'){map.fitBounds(L.latLngBounds(latlngs),{padding:[30,30],maxZoom:2,animate:true,duration:.8});cameraMode='world'}else if(t<.86){map.setView(point,localZoom,{animate:false});cameraMode='local'}lastPan=performance.now()}}"
                 + "function renderRoute(points){document.getElementById('place').textContent=points.length+' route points found';"
