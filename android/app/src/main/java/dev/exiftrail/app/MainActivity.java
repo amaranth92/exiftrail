@@ -43,6 +43,8 @@ import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.text.SimpleDateFormat;
@@ -54,6 +56,7 @@ import java.util.Locale;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.io.OutputStream;
 
 public class MainActivity extends Activity {
     private static final int REQ_PHOTOS = 92;
@@ -80,6 +83,12 @@ public class MainActivity extends Activity {
     private ProgressBar scanProgress;
     private WebView mapView;
     private ScrollView scrollView;
+    private LinearLayout dateRow;
+    private FrameLayout mapCard;
+    private View statusCard;
+    private View loadingView;
+    private TextView loadingStatus;
+    private File preparedVideoFile;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -97,13 +106,15 @@ public class MainActivity extends Activity {
     }
 
     private View buildUi() {
+        FrameLayout screen = new FrameLayout(this);
         ScrollView scroll = new ScrollView(this);
         scrollView = scroll;
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(16), 0, dp(16), dp(32));
+        root.setPadding(dp(20), 0, dp(20), dp(28));
         root.setBackgroundColor(Color.WHITE);
         scroll.addView(root);
+        screen.addView(scroll, new FrameLayout.LayoutParams(-1, -1));
 
         LinearLayout topbar = new LinearLayout(this);
         topbar.setGravity(Gravity.CENTER_VERTICAL);
@@ -116,65 +127,56 @@ public class MainActivity extends Activity {
         topbar.addView(logo, logoLp);
         TextView brand = text("ExifTrail", 19, 0xff191f28, true);
         topbar.addView(brand, new LinearLayout.LayoutParams(0, -2, 1));
-        TextView privacyNote = text("Private by default", 13, 0xff8b95a1, true);
-        topbar.addView(privacyNote);
         root.addView(topbar, new LinearLayout.LayoutParams(-1, dp(72)));
 
-        TextView eyebrow = text("YOUR MEMORIES, IN MOTION", 13, 0xff3182f6, true);
-        eyebrow.setLetterSpacing(.04f);
-        LinearLayout.LayoutParams eyebrowLp = new LinearLayout.LayoutParams(-1, -2);
-        eyebrowLp.setMargins(0, dp(22), 0, dp(10));
-        root.addView(eyebrow, eyebrowLp);
-
-        TextView title = text("Turn photo memories into a route.", 42, 0xff191f28, true);
-        title.setLineSpacing(0, 1.02f);
-        root.addView(title);
-
-        TextView lead = text("Allow photos, then ExifTrail turns their time and location metadata into a moving map video.", 19, 0xff4e5968, false);
-        lead.setLineSpacing(0, 1.35f);
-        LinearLayout.LayoutParams leadLp = new LinearLayout.LayoutParams(-1, -2);
-        leadLp.setMargins(0, dp(16), 0, dp(22));
-        root.addView(lead, leadLp);
-
-        LinearLayout consent = new LinearLayout(this);
-        consent.setOrientation(LinearLayout.VERTICAL);
-        consent.setPadding(dp(16), dp(14), dp(16), dp(14));
-        consent.setBackground(rounded(0xffffffff, 0xffe5e8eb, 16));
-        TextView consentTitle = text("No Google Timeline required.", 15, 0xff191f28, true);
-        consent.addView(consentTitle);
-        TextView consentBody = text("Your photos stay on this device. ExifTrail reads capture time and GPS, sorts them in order, and prepares a vertical video.", 14, 0xff6b7684, false);
-        consentBody.setLineSpacing(0, 1.35f);
-        LinearLayout.LayoutParams consentBodyLp = new LinearLayout.LayoutParams(-1, -2);
-        consentBodyLp.setMargins(0, dp(6), 0, 0);
-        consent.addView(consentBody, consentBodyLp);
-        LinearLayout.LayoutParams consentLp = new LinearLayout.LayoutParams(-1, -2);
-        consentLp.setMargins(0, 0, 0, dp(18));
-        root.addView(consent, consentLp);
-
-        LinearLayout dates = new LinearLayout(this);
-        dates.setOrientation(LinearLayout.HORIZONTAL);
-        dates.setGravity(Gravity.CENTER);
-        dates.setWeightSum(2);
-        root.addView(dates);
+        dateRow = new LinearLayout(this);
+        dateRow.setOrientation(LinearLayout.HORIZONTAL);
+        dateRow.setGravity(Gravity.CENTER);
+        dateRow.setWeightSum(2);
+        LinearLayout.LayoutParams dateRowLp = new LinearLayout.LayoutParams(-1, -2);
+        dateRowLp.setMargins(0, dp(22), 0, dp(12));
+        root.addView(dateRow, dateRowLp);
 
         fromButton = secondaryButton();
         toButton = secondaryButton();
-        dates.addView(fromButton, weighted());
-        dates.addView(toButton, weighted());
+        dateRow.addView(fromButton, weighted());
+        dateRow.addView(toButton, weighted());
         fromButton.setOnClickListener(v -> pickDate(from, this::refreshDates));
         toButton.setOnClickListener(v -> pickDate(to, this::refreshDates));
 
         createButton = primaryButton("Allow photos and create video");
         createButton.setOnClickListener(v -> startRouteBuild());
         LinearLayout.LayoutParams createLp = new LinearLayout.LayoutParams(-1, dp(56));
-        createLp.setMargins(0, 0, 0, dp(10));
+        createLp.setMargins(0, 0, 0, dp(18));
         root.addView(createButton, createLp);
 
-        saveButton = secondaryActionButton("Save video");
+        mapCard = new FrameLayout(this);
+        mapCard.setBackground(rounded(0xffdbeafe, 0xffe5e8eb, 24));
+        mapCard.setClipToOutline(true);
+        float density = getResources().getDisplayMetrics().density;
+        int contentWidthDp = Math.round(getResources().getDisplayMetrics().widthPixels / density) - 40;
+        int mapHeightDp = Math.round(contentWidthDp * 840f / 720f);
+        mapView = new WebView(this);
+        WebSettings settings = mapView.getSettings();
+        settings.setJavaScriptEnabled(true);
+        settings.setDomStorageEnabled(true);
+        settings.setAllowFileAccess(true);
+        settings.setAllowContentAccess(true);
+        settings.setAllowFileAccessFromFileURLs(true);
+        settings.setAllowUniversalAccessFromFileURLs(true);
+        mapView.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
+        mapView.setWebViewClient(new WebViewClient());
+        mapView.loadDataWithBaseURL("file:///android_asset/", mapHtml(), "text/html", "UTF-8", null);
+        mapCard.addView(mapView, new FrameLayout.LayoutParams(-1, dp(mapHeightDp)));
+        mapCard.setVisibility(View.GONE);
+        root.addView(mapCard, new LinearLayout.LayoutParams(-1, dp(mapHeightDp)));
+
+        saveButton = secondaryActionButton("Download video");
         saveButton.setEnabled(false);
+        saveButton.setVisibility(View.GONE);
         saveButton.setOnClickListener(v -> saveVideo());
         LinearLayout.LayoutParams saveLp = new LinearLayout.LayoutParams(-1, dp(56));
-        saveLp.setMargins(0, 0, 0, dp(12));
+        saveLp.setMargins(0, dp(12), 0, dp(12));
         root.addView(saveButton, saveLp);
 
         LinearLayout statusCard = new LinearLayout(this);
@@ -184,45 +186,54 @@ public class MainActivity extends Activity {
         status = text("Allow photo access, then ExifTrail builds a route video from time and GPS metadata.", 15, 0xff191f28, true);
         status.setLineSpacing(0, 1.3f);
         statusCard.addView(status);
+        this.statusCard = statusCard;
+        statusCard.setVisibility(View.GONE);
+        LinearLayout.LayoutParams statusLp = new LinearLayout.LayoutParams(-1, -2);
+        statusLp.setMargins(0, 0, 0, dp(20));
+        root.addView(statusCard, statusLp);
 
+        loadingView = new LinearLayout(this);
+        ((LinearLayout) loadingView).setOrientation(LinearLayout.VERTICAL);
+        ((LinearLayout) loadingView).setGravity(Gravity.CENTER);
+        ((LinearLayout) loadingView).setPadding(dp(32), 0, dp(32), 0);
+        loadingView.setBackgroundColor(Color.WHITE);
+        loadingView.setClickable(true);
+        loadingView.setFocusable(true);
+        ImageView loadingCharacter = new ImageView(this);
+        Bitmap characterFrame = loadCharacterFrame();
+        if (characterFrame != null) loadingCharacter.setImageBitmap(characterFrame);
+        loadingCharacter.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        ((LinearLayout) loadingView).addView(loadingCharacter, new LinearLayout.LayoutParams(dp(132), dp(132)));
+        TextView loadingTitle = text("Building your journey", 22, 0xff191f28, true);
+        LinearLayout.LayoutParams loadingTitleLp = new LinearLayout.LayoutParams(-1, -2);
+        loadingTitleLp.setMargins(0, dp(20), 0, dp(6));
+        ((LinearLayout) loadingView).addView(loadingTitle, loadingTitleLp);
+        loadingStatus = text("Scanning photos...", 15, 0xff6b7684, false);
+        loadingStatus.setGravity(Gravity.CENTER);
+        ((LinearLayout) loadingView).addView(loadingStatus, new LinearLayout.LayoutParams(-1, -2));
         scanProgress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         scanProgress.setMax(100);
         scanProgress.setProgressTintList(ColorStateList.valueOf(0xff3182f6));
-        scanProgress.setVisibility(View.GONE);
-        LinearLayout.LayoutParams progressLp = new LinearLayout.LayoutParams(-1, dp(10));
-        progressLp.setMargins(0, dp(12), 0, 0);
-        statusCard.addView(scanProgress, progressLp);
-        LinearLayout.LayoutParams statusLp = new LinearLayout.LayoutParams(-1, -2);
-        statusLp.setMargins(0, dp(4), 0, dp(20));
-        root.addView(statusCard, statusLp);
+        LinearLayout.LayoutParams loadingProgressLp = new LinearLayout.LayoutParams(-1, dp(10));
+        loadingProgressLp.setMargins(0, dp(18), 0, 0);
+        ((LinearLayout) loadingView).addView(scanProgress, loadingProgressLp);
+        loadingView.setVisibility(View.GONE);
+        screen.addView(loadingView, new FrameLayout.LayoutParams(-1, -1));
 
-        mapView = new WebView(this);
-        WebSettings settings = mapView.getSettings();
-        settings.setJavaScriptEnabled(true);
-        settings.setDomStorageEnabled(true);
-        settings.setAllowFileAccess(true);
-        settings.setAllowContentAccess(true);
-        settings.setAllowFileAccessFromFileURLs(true);
-        settings.setAllowUniversalAccessFromFileURLs(true);
-        // The exported MP4 is drawn from this WebView. Software rendering keeps
-        // WebView.draw() readable on devices where hardware tiles are not exposed.
-        mapView.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
-        mapView.setWebViewClient(new WebViewClient());
-        mapView.loadDataWithBaseURL("file:///android_asset/", mapHtml(), "text/html", "UTF-8", null);
-        FrameLayout mapCard = new FrameLayout(this);
-        mapCard.setBackground(rounded(0xffdbeafe, 0xffe5e8eb, 24));
-        mapCard.setClipToOutline(true);
-        // The map card is inside the 16dp horizontal root padding. Match the
-        // capture aspect to that actual content width so export needs no crop.
-        float density = getResources().getDisplayMetrics().density;
-        int contentWidthDp = Math.round(getResources().getDisplayMetrics().widthPixels / density) - 32;
-        int mapHeightDp = Math.round(contentWidthDp * 840f / 720f);
-        mapCard.addView(mapView, new FrameLayout.LayoutParams(-1, dp(mapHeightDp)));
-        LinearLayout.LayoutParams routeLp = new LinearLayout.LayoutParams(-1, dp(mapHeightDp));
-        routeLp.setMargins(0, 0, 0, 0);
-        root.addView(mapCard, routeLp);
+        return screen;
+    }
 
-        return scroll;
+    private Bitmap loadCharacterFrame() {
+        try (InputStream input = getAssets().open("characters/satgat-walk-8.png")) {
+            Bitmap sheet = BitmapFactory.decodeStream(input);
+            if (sheet == null) return null;
+            int frameWidth = sheet.getWidth() / 8;
+            Bitmap frame = Bitmap.createBitmap(sheet, 0, 0, frameWidth, sheet.getHeight());
+            sheet.recycle();
+            return frame;
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     private void startRouteBuild() {
@@ -235,6 +246,34 @@ public class MainActivity extends Activity {
             return;
         }
         buildRoute();
+    }
+
+    private void showLoadingScreen() {
+        loadingView.setVisibility(View.VISIBLE);
+        scanProgress.setIndeterminate(false);
+        scanProgress.setMax(100);
+        scanProgress.setProgress(0);
+        loadingStatus.setText("Scanning photos...");
+        fromButton.setEnabled(false);
+        toButton.setEnabled(false);
+        createButton.setEnabled(false);
+        saveButton.setEnabled(false);
+    }
+
+    private void updateLoadingProgress(int progress, String message) {
+        runOnUiThread(() -> {
+            scanProgress.setIndeterminate(false);
+            scanProgress.setMax(100);
+            scanProgress.setProgress(Math.max(0, Math.min(100, progress)));
+            loadingStatus.setText(message);
+        });
+    }
+
+    private void hideLoadingScreen() {
+        loadingView.setVisibility(View.GONE);
+        fromButton.setEnabled(true);
+        toButton.setEnabled(true);
+        createButton.setEnabled(true);
     }
 
     private void requestPhotoAccess() {
@@ -268,62 +307,79 @@ public class MainActivity extends Activity {
     }
 
     private void buildRoute() {
-        createButton.setEnabled(false);
-        saveButton.setEnabled(false);
-        status.setText("Scanning photos in the selected date range...");
-        scanProgress.setIndeterminate(true);
-        scanProgress.setVisibility(View.VISIBLE);
+        showLoadingScreen();
+        if (preparedVideoFile != null) {
+            preparedVideoFile.delete();
+            preparedVideoFile = null;
+        }
         points.clear();
 
         new Thread(() -> {
             ScanResult result = queryPhotos();
-            runOnUiThread(() -> {
-                createButton.setEnabled(true);
-                scanProgress.setIndeterminate(false);
-                scanProgress.setProgress(0);
-                scanProgress.setVisibility(View.GONE);
-                points.clear();
-                points.addAll(result.points);
-                if (points.size() < 2) {
+            if (result.points.size() < 2) {
+                runOnUiThread(() -> {
+                    points.clear();
                     status.setText("Scanned " + result.total + " photos in range, found " + result.withGps + " with GPS. Try a wider range or enable camera location tags.");
-                } else {
-                    status.setText(points.size() + " route points found from " + result.total + " photos. Moving route preview is playing.");
+                    statusCard.setVisibility(View.VISIBLE);
+                    mapCard.setVisibility(View.GONE);
+                    saveButton.setVisibility(View.GONE);
+                    hideLoadingScreen();
+                });
+                return;
+            }
+            try {
+                List<RoutePoint> route = new ArrayList<>(result.points);
+                updateLoadingProgress(0, "Preparing your moving map video...");
+                File videoFile = prepareRouteVideo(route);
+                runOnUiThread(() -> {
+                    points.clear();
+                    points.addAll(route);
+                    preparedVideoFile = videoFile;
+                    status.setText(points.size() + " route points found from " + result.total + " photos. Your video is ready.");
+                    statusCard.setVisibility(View.VISIBLE);
+                    mapCard.setVisibility(View.VISIBLE);
+                    saveButton.setVisibility(View.VISIBLE);
                     saveButton.setEnabled(true);
                     renderMapRoute(points);
-                }
-            });
+                    hideLoadingScreen();
+                });
+            } catch (Exception e) {
+                runOnUiThread(() -> {
+                    status.setText("Video preparation failed: " + e.getMessage());
+                    statusCard.setVisibility(View.VISIBLE);
+                    mapCard.setVisibility(View.GONE);
+                    saveButton.setVisibility(View.GONE);
+                    hideLoadingScreen();
+                });
+            }
         }).start();
     }
 
     private void saveVideo() {
-        if (points.size() < 2) {
-            status.setText("Create a route first, then save the moving video.");
+        if (preparedVideoFile == null || !preparedVideoFile.exists()) {
+            status.setText("Create a route first, then download the prepared video.");
             return;
         }
-        createButton.setEnabled(false);
-        saveButton.setEnabled(false);
-        scanProgress.setIndeterminate(false);
-        scanProgress.setMax(100);
-        scanProgress.setProgress(0);
-        scanProgress.setVisibility(View.VISIBLE);
-        status.setText("Preparing video... 0%");
-
-        List<RoutePoint> route = new ArrayList<>(points);
+        showLoadingScreen();
+        loadingStatus.setText("Saving video to Gallery...");
+        updateLoadingProgress(0, "Saving video to Gallery...");
         new Thread(() -> {
             try {
-                Uri uri = exportRouteVideo(route);
+                Uri uri = publishPreparedVideo(preparedVideoFile);
                 runOnUiThread(() -> {
-                    createButton.setEnabled(true);
+                    hideLoadingScreen();
+                    statusCard.setVisibility(View.VISIBLE);
+                    mapCard.setVisibility(View.VISIBLE);
+                    saveButton.setVisibility(View.VISIBLE);
                     saveButton.setEnabled(true);
-                    scanProgress.setProgress(100);
-                    scanProgress.setVisibility(View.GONE);
                     status.setText("Saved moving route video to Gallery: " + uri);
                 });
             } catch (Exception e) {
                 runOnUiThread(() -> {
-                    createButton.setEnabled(true);
+                    hideLoadingScreen();
+                    statusCard.setVisibility(View.VISIBLE);
+                    saveButton.setVisibility(View.VISIBLE);
                     saveButton.setEnabled(true);
-                    scanProgress.setVisibility(View.GONE);
                     status.setText("Video save failed: " + e.getMessage());
                 });
             }
@@ -357,11 +413,7 @@ public class MainActivity extends Activity {
             int latCol = cursor.getColumnIndex(MediaStore.Images.Media.LATITUDE);
             int lngCol = cursor.getColumnIndex(MediaStore.Images.Media.LONGITUDE);
             int totalPhotos = cursor.getCount();
-            runOnUiThread(() -> {
-                scanProgress.setIndeterminate(false);
-                scanProgress.setMax(Math.max(1, totalPhotos));
-                scanProgress.setProgress(0);
-            });
+            updateLoadingProgress(0, "Scanning photos... 0/" + totalPhotos + " checked");
             while (cursor.moveToNext()) {
                 total += 1;
                 long id = cursor.getLong(idCol);
@@ -379,10 +431,8 @@ public class MainActivity extends Activity {
                 if (total % 10 == 0 || total == totalPhotos) {
                     int scanned = total;
                     int gps = withGps;
-                    runOnUiThread(() -> {
-                        scanProgress.setProgress(scanned);
-                        status.setText("Scanning photos... " + scanned + "/" + totalPhotos + " checked, " + gps + " with GPS");
-                    });
+                    int progress = Math.round(scanned * 55f / Math.max(1, totalPhotos));
+                    updateLoadingProgress(progress, "Scanning photos... " + scanned + "/" + totalPhotos + " checked, " + gps + " with GPS");
                 }
             }
         }
@@ -544,7 +594,19 @@ public class MainActivity extends Activity {
         return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
-    private Uri exportRouteVideo(List<RoutePoint> route) throws Exception {
+    private File prepareRouteVideo(List<RoutePoint> route) throws Exception {
+        File file = new File(getCacheDir(), "exiftrail-prepared-route.mp4");
+        if (file.exists() && !file.delete()) throw new IllegalStateException("Could not replace prepared video");
+        try (ParcelFileDescriptor pfd = ParcelFileDescriptor.open(
+                file,
+                ParcelFileDescriptor.MODE_CREATE | ParcelFileDescriptor.MODE_READ_WRITE | ParcelFileDescriptor.MODE_TRUNCATE
+        )) {
+            encodeRouteVideo(route, pfd);
+        }
+        return file;
+    }
+
+    private Uri publishPreparedVideo(File source) throws Exception {
         ContentValues values = new ContentValues();
         String name = "ExifTrail-" + new SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(new Date()) + ".mp4";
         values.put(MediaStore.Video.Media.DISPLAY_NAME, name);
@@ -556,15 +618,22 @@ public class MainActivity extends Activity {
 
         Uri uri = getContentResolver().insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values);
         if (uri == null) throw new IllegalStateException("Could not create video file");
-
-        try (ParcelFileDescriptor pfd = getContentResolver().openFileDescriptor(uri, "rw")) {
-            if (pfd == null) throw new IllegalStateException("Could not open video file");
-            encodeRouteVideo(route, pfd);
+        try (FileInputStream input = new FileInputStream(source);
+             OutputStream output = getContentResolver().openOutputStream(uri)) {
+            if (output == null) throw new IllegalStateException("Could not open Gallery file");
+            byte[] buffer = new byte[64 * 1024];
+            long total = 0;
+            long length = Math.max(1, source.length());
+            int read;
+            while ((read = input.read(buffer)) != -1) {
+                output.write(buffer, 0, read);
+                total += read;
+                updateLoadingProgress((int) Math.min(100, total * 100 / length), "Saving video to Gallery...");
+            }
         } catch (Exception e) {
             getContentResolver().delete(uri, null, null);
             throw e;
         }
-
         if (Build.VERSION.SDK_INT >= 29) {
             ContentValues done = new ContentValues();
             done.put(MediaStore.Video.Media.IS_PENDING, 0);
@@ -611,16 +680,10 @@ public class MainActivity extends Activity {
                 mapSnapshots.add(captureMapFrame(route, cameraProgress, false));
                 int captured = i + 1;
                 int prepProgress = Math.round(captured * 55f / (localSnapshotCount + 1));
-                runOnUiThread(() -> {
-                    scanProgress.setProgress(prepProgress);
-                    status.setText("Preparing map frames... " + captured + " / " + (localSnapshotCount + 1) + " (" + prepProgress + "%)");
-                });
+                updateLoadingProgress(prepProgress, "Preparing map frames... " + captured + " / " + (localSnapshotCount + 1) + " (" + prepProgress + "%)");
             }
             mapSnapshots.add(captureMapFrame(route, 1f, true));
-            runOnUiThread(() -> {
-                scanProgress.setProgress(55);
-                status.setText("Preparing map frames... " + (localSnapshotCount + 1) + " / " + (localSnapshotCount + 1) + " (55%)");
-            });
+            updateLoadingProgress(55, "Preparing map frames... " + (localSnapshotCount + 1) + " / " + (localSnapshotCount + 1) + " (55%)");
             encoder.start();
             encoderStarted = true;
             muxer = new MediaMuxer(pfd.getFileDescriptor(), MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
@@ -646,10 +709,7 @@ public class MainActivity extends Activity {
                 if (frame % VIDEO_FPS == 0 || frame == totalFrames - 1) {
                     int seconds = Math.round(frame / (float) Math.max(1, totalFrames - 1) * VIDEO_SECONDS);
                     int encodeProgress = 55 + Math.round((frame + 1) * 45f / totalFrames);
-                    runOnUiThread(() -> {
-                        scanProgress.setProgress(encodeProgress);
-                        status.setText("Saving MP4 video... " + seconds + " / " + VIDEO_SECONDS + " sec (" + encodeProgress + "%)");
-                    });
+                    updateLoadingProgress(encodeProgress, "Preparing MP4 video... " + seconds + " / " + VIDEO_SECONDS + " sec (" + encodeProgress + "%)");
                 }
             }
             encoder.signalEndOfInputStream();
