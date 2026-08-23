@@ -61,6 +61,8 @@ public class MainActivity extends Activity {
     private static final double MAX_REASONABLE_SPEED_KMH = 1000d;
     private static final int VIDEO_WIDTH = 720;
     private static final int VIDEO_HEIGHT = 1280;
+    private static final int OUTPUT_WIDTH = 1080;
+    private static final int OUTPUT_HEIGHT = 1920;
     private static final int VIDEO_FPS = 30;
     private static final int VIDEO_SECONDS = 10;
 
@@ -565,13 +567,27 @@ public class MainActivity extends Activity {
     }
 
     private void encodeRouteVideo(List<RoutePoint> route, ParcelFileDescriptor pfd) throws Exception {
-        MediaFormat format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, VIDEO_WIDTH, VIDEO_HEIGHT);
+        MediaCodec encoder = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC);
+        int outputWidth = VIDEO_WIDTH;
+        int outputHeight = VIDEO_HEIGHT;
+        try {
+            MediaCodecInfo.VideoCapabilities videoCapabilities = encoder.getCodecInfo()
+                    .getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_AVC)
+                    .getVideoCapabilities();
+            if (videoCapabilities.areSizeAndRateSupported(OUTPUT_WIDTH, OUTPUT_HEIGHT, VIDEO_FPS)) {
+                outputWidth = OUTPUT_WIDTH;
+                outputHeight = OUTPUT_HEIGHT;
+            }
+        } catch (RuntimeException ignored) {
+            // Keep the known-compatible 720x1280 path when codec capabilities are incomplete.
+        }
+        float outputScale = outputWidth / (float) VIDEO_WIDTH;
+        MediaFormat format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, outputWidth, outputHeight);
         format.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
-        format.setInteger(MediaFormat.KEY_BIT_RATE, 4_000_000);
+        format.setInteger(MediaFormat.KEY_BIT_RATE, outputWidth == OUTPUT_WIDTH ? 10_000_000 : 4_000_000);
         format.setInteger(MediaFormat.KEY_FRAME_RATE, VIDEO_FPS);
         format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1);
 
-        MediaCodec encoder = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC);
         MediaMuxer muxer = null;
         Surface surface = null;
         boolean encoderStarted = false;
@@ -582,7 +598,7 @@ public class MainActivity extends Activity {
             Bitmap characterSprite = loadCharacterSprite();
             Thread.sleep(1200);
             List<MapSnapshot> mapSnapshots = new ArrayList<>();
-            final int localSnapshotCount = 27;
+            final int localSnapshotCount = 36;
             for (int i = 0; i < localSnapshotCount; i++) {
                 float cameraProgress = .85f * i / (float) (localSnapshotCount - 1);
                 mapSnapshots.add(captureMapFrame(route, cameraProgress, false));
@@ -601,7 +617,7 @@ public class MainActivity extends Activity {
                 float progress = frame / (float) (totalFrames - 1);
                 Canvas canvas = surface.lockCanvas(null);
                 try {
-                    drawVideoFrame(canvas, route, progress, frame, mapSnapshots, characterSprite);
+                    drawVideoFrame(canvas, route, progress, frame, mapSnapshots, characterSprite, outputScale);
                 } finally {
                     surface.unlockCanvasAndPost(canvas);
                 }
@@ -694,9 +710,11 @@ public class MainActivity extends Activity {
         return new MapSnapshot(result.get(), camera.centerLat, camera.centerLng, camera.zoom, camera.world);
     }
 
-    private void drawVideoFrame(Canvas canvas, List<RoutePoint> route, float progress, int animationFrame, List<MapSnapshot> snapshots, Bitmap characterSprite) {
+    private void drawVideoFrame(Canvas canvas, List<RoutePoint> route, float progress, int animationFrame, List<MapSnapshot> snapshots, Bitmap characterSprite, float outputScale) {
         Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         canvas.drawColor(0xffdbeafe);
+        canvas.save();
+        canvas.scale(outputScale, outputScale);
         RectF mapRect = new RectF(0, 210, VIDEO_WIDTH, 1050);
         MapSnapshot worldSnapshot = snapshots.get(snapshots.size() - 1);
         List<MapSnapshot> localSnapshots = snapshots.subList(0, snapshots.size() - 1);
@@ -720,9 +738,9 @@ public class MainActivity extends Activity {
         }
 
         MapSnapshot frameSnapshot = progress >= .86f ? worldSnapshot : localSnapshot;
-        int currentIndex = Math.max(0, Math.min(route.size() - 1, (int) Math.floor((route.size() - 1) * progress)));
-        float exact = (route.size() - 1) * progress;
-        float fraction = exact - currentIndex;
+        RouteLocation location = locationAt(route, progress);
+        int currentIndex = location.index;
+        float fraction = location.fraction;
         RectF plot = mapRect;
         float[] currentPos = project(route.get(currentIndex), frameSnapshot, plot, route);
         float[] nextPos = project(route.get(Math.min(route.size() - 1, currentIndex + 1)), frameSnapshot, plot, route);
@@ -773,6 +791,7 @@ public class MainActivity extends Activity {
         canvas.drawRoundRect(new RectF(56, VIDEO_HEIGHT - 70, VIDEO_WIDTH - 56, VIDEO_HEIGHT - 52), 99, 99, paint);
         paint.setColor(0xff38bdf8);
         canvas.drawRoundRect(new RectF(56, VIDEO_HEIGHT - 70, 56 + (VIDEO_WIDTH - 112) * progress, VIDEO_HEIGHT - 52), 99, 99, paint);
+        canvas.restore();
     }
 
     private void drawMapBitmap(Canvas canvas, Bitmap bitmap, RectF destination, Paint paint) {
@@ -802,7 +821,8 @@ public class MainActivity extends Activity {
 
     private Path routePath(List<RoutePoint> route, float progress, MapSnapshot snapshot, RectF plot, int startIndex) {
         Path path = new Path();
-        int endIndex = Math.min(route.size() - 1, Math.max(0, (int) Math.floor((route.size() - 1) * progress)));
+        RouteLocation location = locationAt(route, progress);
+        int endIndex = location.index;
         int firstIndex = Math.min(startIndex, endIndex);
         for (int i = firstIndex; i <= endIndex; i++) {
             float[] pos = project(route.get(i), snapshot, plot, route);
@@ -810,13 +830,27 @@ public class MainActivity extends Activity {
             else path.lineTo(pos[0], pos[1]);
         }
         if (progress < 1f && endIndex < route.size() - 1 && endIndex >= firstIndex) {
-            float exact = (route.size() - 1) * progress;
-            float fraction = exact - endIndex;
             float[] from = project(route.get(endIndex), snapshot, plot, route);
             float[] to = project(route.get(endIndex + 1), snapshot, plot, route);
-            path.lineTo(from[0] + (to[0] - from[0]) * fraction, from[1] + (to[1] - from[1]) * fraction);
+            path.lineTo(from[0] + (to[0] - from[0]) * location.fraction, from[1] + (to[1] - from[1]) * location.fraction);
         }
         return path;
+    }
+
+    private RouteLocation locationAt(List<RoutePoint> route, float progress) {
+        if (route.size() < 2) return new RouteLocation(0, 0f);
+        float clamped = Math.max(0f, Math.min(1f, progress));
+        long firstTime = route.get(0).time;
+        long lastTime = route.get(route.size() - 1).time;
+        long targetTime = firstTime + Math.round((lastTime - firstTime) * clamped);
+        int index = 0;
+        while (index < route.size() - 2 && route.get(index + 1).time <= targetTime) index += 1;
+        long segmentStart = route.get(index).time;
+        long segmentEnd = route.get(index + 1).time;
+        float fraction = segmentEnd <= segmentStart
+                ? 0f
+                : (targetTime - segmentStart) / (float) (segmentEnd - segmentStart);
+        return new RouteLocation(index, Math.max(0f, Math.min(1f, fraction)));
     }
 
     private float[] project(RoutePoint point, MapSnapshot snapshot, RectF plot, List<RoutePoint> route) {
@@ -905,7 +939,8 @@ public class MainActivity extends Activity {
             if (i > 0) json.append(',');
             json.append("{lat:").append(p.lat)
                     .append(",lng:").append(p.lng)
-                    .append(",time:\"").append(mapDateFormat.format(new Date(p.time))).append("\"}");
+                    .append(",time:").append(p.time)
+                    .append(",label:\"").append(mapDateFormat.format(new Date(p.time))).append("\"}");
         }
         json.append(']');
         mapView.evaluateJavascript("renderRoute(" + json + ")", null);
@@ -915,7 +950,7 @@ public class MainActivity extends Activity {
         return "<!doctype html><html><head>"
                 + "<meta name='viewport' content='width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no'>"
                 + "<link rel='stylesheet' href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'>"
-                + "<style>html,body,#map{height:100%;margin:0;background:#dbeafe}.leaflet-container{font:14px system-ui}.panel{position:absolute;z-index:500;left:14px;right:14px;top:14px;background:rgba(25,31,40,.92);color:white;padding:12px 14px;border-radius:16px;font:800 14px system-ui;box-shadow:0 10px 24px rgba(25,31,40,.16)}.panel small{display:block;margin-top:4px;color:#c9d8ee;font-weight:700}.progress{height:5px;margin-top:10px;background:rgba(255,255,255,.16);border-radius:999px;overflow:hidden}.bar{height:100%;width:0;background:#5b9bff;border-radius:999px}.vehicle{border:0;background:transparent}.route-character-sprite{display:block;width:24px;height:48px;background-image:url('characters/satgat-walk-8.png');background-repeat:no-repeat;background-size:800% 100%;animation:route-character-walk 800ms steps(1,end) infinite}@keyframes route-character-walk{0%{background-position:0 0}12.5%{background-position:14.286% 0}25%{background-position:28.571% 0}37.5%{background-position:42.857% 0}50%{background-position:57.143% 0}62.5%{background-position:71.429% 0}75%{background-position:85.714% 0}87.5%{background-position:100% 0}100%{background-position:0 0}}</style>"
+                + "<style>html,body,#map{height:100%;margin:0;background:#dbeafe}.leaflet-container{font:14px system-ui}.panel{position:absolute;z-index:500;left:14px;right:14px;top:14px;background:rgba(25,31,40,.92);color:white;padding:12px 14px;border-radius:16px;font:800 14px system-ui;box-shadow:0 10px 24px rgba(25,31,40,.16)}.panel small{display:block;margin-top:4px;color:#c9d8ee;font-weight:700}.progress{height:5px;margin-top:10px;background:rgba(255,255,255,.16);border-radius:999px;overflow:hidden}.bar{height:100%;width:0;background:#5b9bff;border-radius:999px}.vehicle{border:0;background:transparent;filter:drop-shadow(0 2px 2px rgba(15,23,42,.38))}.route-character-sprite{display:block;width:32px;height:64px;background-image:url('characters/satgat-walk-8.png');background-repeat:no-repeat;background-size:800% 100%;image-rendering:pixelated;animation:route-character-walk 800ms steps(1,end) infinite}@keyframes route-character-walk{0%{background-position:0 0}12.5%{background-position:14.286% 0}25%{background-position:28.571% 0}37.5%{background-position:42.857% 0}50%{background-position:57.143% 0}62.5%{background-position:71.429% 0}75%{background-position:85.714% 0}87.5%{background-position:100% 0}100%{background-position:0 0}}</style>"
                 + "</head><body><div id='map'></div><div id='panel' class='panel'><span id='place'>Route preview appears here</span><small id='time'>Waiting for photo GPS points</small><div class='progress'><div class='bar' id='bar'></div></div></div>"
                 + "<script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></script>"
                 + "<script>"
@@ -923,10 +958,11 @@ public class MainActivity extends Activity {
                 + "L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);"
                 + "map.setView([0,0],2);var full,line,marker,raf,lastPan=0,routePoints=[],latlngs=[],localZoom=4,cameraMode='local';"
                 + "function ll(p){return [p.lat,p.lng]}"
-                + "function vehicleIcon(){return L.divIcon({className:'vehicle',iconSize:[24,48],iconAnchor:[12,44],html:'<span class=\"route-character-sprite\" role=\"img\" aria-label=\"route character\"></span>'})}"
+                + "function vehicleIcon(){return L.divIcon({className:'vehicle',iconSize:[32,64],iconAnchor:[16,58],html:'<span class=\"route-character-sprite\" role=\"img\" aria-label=\"route character\"></span>'})}"
                 + "function routeZoom(points){var lats=points.map(function(p){return p.lat}),lngs=points.map(function(p){return p.lng}),span=Math.max(Math.max.apply(null,lats)-Math.min.apply(null,lats),Math.max.apply(null,lngs)-Math.min.apply(null,lngs));return span>90?3:span>30?4:span>8?5:span>2?7:span>.5?9:span>.1?11:span>.02?13:span>.005?15:17}"
-                + "function setCamera(t,world){if(!routePoints.length)return;var exact=(routePoints.length-1)*Math.max(0,Math.min(1,t));var end=Math.min(routePoints.length-1,Math.floor(exact)),next=routePoints[Math.min(routePoints.length-1,end+1)],cur=routePoints[end],f=exact-end;var point=[cur.lat+(next.lat-cur.lat)*f,cur.lng+(next.lng-cur.lng)*f];if(world){map.fitBounds(L.latLngBounds(latlngs),{padding:[30,30],maxZoom:2,animate:false});cameraMode='world'}else{map.setView(point,localZoom,{animate:false});cameraMode='local'}}"
-                + "function setProgress(t,follow){if(!routePoints.length)return;var exact=(routePoints.length-1)*Math.max(0,Math.min(1,t));var end=Math.max(0,Math.floor(exact)),next=routePoints[Math.min(routePoints.length-1,end+1)],cur=routePoints[end],f=exact-end;var point=[cur.lat+(next.lat-cur.lat)*f,cur.lng+(next.lng-cur.lng)*f];var visible=latlngs.slice(0,end+1);visible.push(point);line.setLatLngs(visible);marker.setLatLng(point);document.getElementById('time').textContent=cur.time;document.getElementById('bar').style.width=(Math.max(0,Math.min(1,t))*100).toFixed(1)+'%';if(follow&&performance.now()-lastPan>80){if(t>=.86&&cameraMode!=='world'){map.fitBounds(L.latLngBounds(latlngs),{padding:[30,30],maxZoom:2,animate:true,duration:.8});cameraMode='world'}else if(t<.86){map.setView(point,localZoom,{animate:false});cameraMode='local'}lastPan=performance.now()}}"
+                + "function routeAt(t){var clamped=Math.max(0,Math.min(1,t)),target=routePoints[0].time+(routePoints[routePoints.length-1].time-routePoints[0].time)*clamped,end=0;while(end<routePoints.length-2&&routePoints[end+1].time<=target)end++;var cur=routePoints[end],next=routePoints[Math.min(routePoints.length-1,end+1)],span=next.time-cur.time,f=span<=0?0:(target-cur.time)/span;return {end:end,cur:cur,next:next,f:Math.max(0,Math.min(1,f)),point:[cur.lat+(next.lat-cur.lat)*f,cur.lng+(next.lng-cur.lng)*f]}}"
+                + "function setCamera(t,world){if(!routePoints.length)return;var a=routeAt(t),point=a.point;if(world){map.fitBounds(L.latLngBounds(latlngs),{padding:[30,30],maxZoom:2,animate:false});cameraMode='world'}else{map.setView(point,localZoom,{animate:false});cameraMode='local'}}"
+                + "function setProgress(t,follow){if(!routePoints.length)return;var a=routeAt(t),point=a.point,visible=latlngs.slice(0,a.end+1);visible.push(point);line.setLatLngs(visible);marker.setLatLng(point);document.getElementById('time').textContent=a.cur.label;document.getElementById('bar').style.width=(Math.max(0,Math.min(1,t))*100).toFixed(1)+'%';if(follow&&performance.now()-lastPan>80){if(t>=.86&&cameraMode!=='world'){map.fitBounds(L.latLngBounds(latlngs),{padding:[30,30],maxZoom:2,animate:true,duration:.8});cameraMode='world'}else if(t<.86){map.setView(point,localZoom,{animate:false});cameraMode='local'}lastPan=performance.now()}}"
                 + "function renderRoute(points){document.getElementById('place').textContent=points.length+' route points found';"
                 + "if(full)map.removeLayer(full);if(line)map.removeLayer(line);if(marker)map.removeLayer(marker);if(raf)cancelAnimationFrame(raf);"
                 + "routePoints=points;latlngs=points.map(ll);"
@@ -957,6 +993,16 @@ public class MainActivity extends Activity {
             this.lat = lat;
             this.lng = lng;
             this.time = time;
+        }
+    }
+
+    private static class RouteLocation {
+        final int index;
+        final float fraction;
+
+        RouteLocation(int index, float fraction) {
+            this.index = index;
+            this.fraction = fraction;
         }
     }
 
