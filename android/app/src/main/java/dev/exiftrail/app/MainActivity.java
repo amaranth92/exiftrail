@@ -365,7 +365,7 @@ public class MainActivity extends Activity {
 
     private String[] photoPermissions() {
         if (Build.VERSION.SDK_INT >= 34) {
-            return new String[]{Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.ACCESS_MEDIA_LOCATION};
+            return new String[]{Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED, Manifest.permission.ACCESS_MEDIA_LOCATION};
         }
         if (Build.VERSION.SDK_INT >= 33) {
             return new String[]{Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.ACCESS_MEDIA_LOCATION};
