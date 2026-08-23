@@ -908,8 +908,17 @@ public class MainActivity extends Activity {
     }
 
     private int localZoom(List<RoutePoint> route) {
-        Bounds b = bounds(route);
-        double span = Math.max(b.maxLat - b.minLat, b.maxLng - b.minLng);
+        double minLat = Double.MAX_VALUE;
+        double maxLat = -Double.MAX_VALUE;
+        double minLng = Double.MAX_VALUE;
+        double maxLng = -Double.MAX_VALUE;
+        for (RoutePoint point : route) {
+            minLat = Math.min(minLat, point.lat);
+            maxLat = Math.max(maxLat, point.lat);
+            minLng = Math.min(minLng, point.lng);
+            maxLng = Math.max(maxLng, point.lng);
+        }
+        double span = Math.max(maxLat - minLat, maxLng - minLng);
         if (span > 90) return 3;
         if (span > 30) return 4;
         if (span > 8) return 5;
@@ -967,8 +976,8 @@ public class MainActivity extends Activity {
                 + "function renderRoute(points){document.getElementById('place').textContent=points.length+' route points found';"
                 + "if(full)map.removeLayer(full);if(line)map.removeLayer(line);if(marker)map.removeLayer(marker);if(raf)cancelAnimationFrame(raf);"
                 + "routePoints=points;latlngs=points.map(ll);"
-                + "full=L.polyline(latlngs,{color:'#0ea5e9',opacity:1,weight:7,lineCap:'round',lineJoin:'round'}).addTo(map);"
-                + "line=L.polyline([], {color:'#0ea5e9',weight:7}).addTo(map);"
+                + "full=L.polyline(latlngs,{color:'#0ea5e9',opacity:1,weight:4,lineCap:'round',lineJoin:'round'}).addTo(map);"
+                + "line=L.polyline([], {color:'#0ea5e9',weight:4,lineCap:'round',lineJoin:'round'}).addTo(map);"
                 + "marker=L.marker(ll(points[0]),{icon:vehicleIcon(),interactive:false}).addTo(map);"
                 + "localZoom=routeZoom(points);setCamera(0,false);var start=0,duration=10000;"
                 + "setProgress(0,true);function step(ts){if(!start)start=ts;var t=Math.min((ts-start)/duration,1);setProgress(t,true);if(t<1)raf=requestAnimationFrame(step)}"
