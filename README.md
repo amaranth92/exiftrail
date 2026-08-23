@@ -30,18 +30,18 @@ Choose a language above to read the full documentation.
 
 <table>
   <tr>
-    <td><img src="public/docs/screenshots/exiftrail-1.png" alt="ExifTrail home screen with Decody banner" width="220"></td>
-    <td><img src="public/docs/screenshots/exiftrail-2.png" alt="ExifTrail home screen with Neon Drift banner" width="220"></td>
+    <td><img src="public/docs/screenshots/exiftrail-1-cropped.png" alt="ExifTrail home screen with Decody banner" width="220"></td>
+    <td><img src="public/docs/screenshots/exiftrail-2-cropped.png" alt="ExifTrail home screen with Neon Drift banner" width="220"></td>
   </tr>
   <tr>
-    <td><img src="public/docs/screenshots/exiftrail-3.jpg" alt="ExifTrail video generation progress" width="220"></td>
-    <td><img src="public/docs/screenshots/exiftrail-4.jpg" alt="ExifTrail route video result" width="220"></td>
+    <td><img src="public/docs/screenshots/exiftrail-3-cropped.jpg" alt="ExifTrail video generation progress" width="220"></td>
+    <td><img src="public/docs/screenshots/exiftrail-4-final.jpg" alt="ExifTrail route video result" width="220"></td>
   </tr>
 </table>
 
 ## Sample video
 
-<video controls width="320" poster="https://github.com/amaranth92/exiftrail/raw/refs/heads/master/public/docs/screenshots/exiftrail-4.jpg">
+<video controls width="320" poster="https://github.com/amaranth92/exiftrail/raw/refs/heads/master/public/docs/screenshots/exiftrail-4-final.jpg">
   <source src="https://github.com/amaranth92/exiftrail/raw/refs/heads/master/public/demo/exiftrail-sample-route.mp4" type="video/mp4">
 </video>
 

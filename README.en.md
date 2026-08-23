@@ -57,7 +57,7 @@ without enabling a continuous location timeline.
 
 The repository includes the sample MP4 created from the project:
 
-<video controls width="320" poster="https://github.com/amaranth92/exiftrail/raw/refs/heads/master/public/docs/screenshots/exiftrail-4.jpg">
+<video controls width="320" poster="https://github.com/amaranth92/exiftrail/raw/refs/heads/master/public/docs/screenshots/exiftrail-4-final.jpg">
   <source src="https://github.com/amaranth92/exiftrail/raw/refs/heads/master/public/demo/exiftrail-sample-route.mp4" type="video/mp4">
 </video>
 
@@ -67,12 +67,12 @@ The repository includes the sample MP4 created from the project:
 
 <table>
   <tr>
-    <td><img src="public/docs/screenshots/exiftrail-1.png" alt="Home screen with Decody banner" width="220"></td>
-    <td><img src="public/docs/screenshots/exiftrail-2.png" alt="Home screen with Neon Drift banner" width="220"></td>
+    <td><img src="public/docs/screenshots/exiftrail-1-cropped.png" alt="Home screen with Decody banner" width="220"></td>
+    <td><img src="public/docs/screenshots/exiftrail-2-cropped.png" alt="Home screen with Neon Drift banner" width="220"></td>
   </tr>
   <tr>
-    <td><img src="public/docs/screenshots/exiftrail-3.jpg" alt="Video generation progress" width="220"></td>
-    <td><img src="public/docs/screenshots/exiftrail-4.jpg" alt="Generated route result" width="220"></td>
+    <td><img src="public/docs/screenshots/exiftrail-3-cropped.jpg" alt="Video generation progress" width="220"></td>
+    <td><img src="public/docs/screenshots/exiftrail-4-final.jpg" alt="Generated route result" width="220"></td>
   </tr>
 </table>
 

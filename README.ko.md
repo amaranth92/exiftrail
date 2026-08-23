@@ -54,7 +54,7 @@ EXIF 정보만으로 Google Timeline과 비슷한 결과를 만들도록 ExifTra
 
 샘플 영상:
 
-<video controls width="320" poster="https://github.com/amaranth92/exiftrail/raw/refs/heads/master/public/docs/screenshots/exiftrail-4.jpg">
+<video controls width="320" poster="https://github.com/amaranth92/exiftrail/raw/refs/heads/master/public/docs/screenshots/exiftrail-4-final.jpg">
   <source src="https://github.com/amaranth92/exiftrail/raw/refs/heads/master/public/demo/exiftrail-sample-route.mp4" type="video/mp4">
 </video>
 
@@ -64,12 +64,12 @@ EXIF 정보만으로 Google Timeline과 비슷한 결과를 만들도록 ExifTra
 
 <table>
   <tr>
-    <td><img src="public/docs/screenshots/exiftrail-1.png" alt="Decody 배너가 보이는 첫 화면" width="220"></td>
-    <td><img src="public/docs/screenshots/exiftrail-2.png" alt="Neon Drift 배너가 보이는 첫 화면" width="220"></td>
+    <td><img src="public/docs/screenshots/exiftrail-1-cropped.png" alt="Decody 배너가 보이는 첫 화면" width="220"></td>
+    <td><img src="public/docs/screenshots/exiftrail-2-cropped.png" alt="Neon Drift 배너가 보이는 첫 화면" width="220"></td>
   </tr>
   <tr>
-    <td><img src="public/docs/screenshots/exiftrail-3.jpg" alt="영상 생성 진행 화면" width="220"></td>
-    <td><img src="public/docs/screenshots/exiftrail-4.jpg" alt="완성된 경로 결과 화면" width="220"></td>
+    <td><img src="public/docs/screenshots/exiftrail-3-cropped.jpg" alt="영상 생성 진행 화면" width="220"></td>
+    <td><img src="public/docs/screenshots/exiftrail-4-final.jpg" alt="완성된 경로 결과 화면" width="220"></td>
   </tr>
 </table>
 
