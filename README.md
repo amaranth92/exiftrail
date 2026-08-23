@@ -25,6 +25,7 @@ files and EXIF parsing on the device.
 
 - Live web app: <https://amaranth92.github.io/exiftrail/>
 - GitHub repository: <https://github.com/amaranth92/exiftrail>
+- Android APK: <https://github.com/amaranth92/exiftrail/releases/latest>
 - Sample export: [`public/demo/exiftrail-sample-route.webm`](public/demo/exiftrail-sample-route.webm)
 
 ## 한국어 안내
