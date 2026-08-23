@@ -48,10 +48,10 @@ ExifTrail은 휴대폰에 저장된 사진의 촬영 시간과 GPS 메타데이�
 Android 앱은 휴대폰 사진첩을 날짜 범위로 직접 검색하는 방식입니다.
 
 1. `From`과 `To` 날짜를 정합니다. 기본값은 올해 1월 1일부터 오늘까지입니다.
-2. `Allow photos and create video`를 누릅니다.
-3. 사진 및 미디어 위치 권한을 허용합니다.
-4. 앱이 파일 선택창을 띄우지 않고 해당 기간의 사진을 자동으로 검색합니다.
-5. 경로가 만들어지면 `Save moving video`를 눌러 저장합니다.
+2. `Allow full photo access and create video`를 누릅니다.
+3. 처음 한 번만 사진 및 미디어 위치 권한을 허용합니다. Android 14 이상에서는 **선택한 사진**이 아니라 **모든 사진 허용**을 선택해야 합니다.
+4. 이후에는 사진 선택창 없이 해당 기간의 전체 사진첩을 자동으로 검색합니다.
+5. 경로 미리보기가 끝나면 `Save moving video`를 눌러 저장합니다.
 
 완성된 MP4는 휴대폰 사진첩의 `Movies/ExifTrail` 폴더에 저장됩니다.
 
@@ -109,7 +109,8 @@ adb install -r app\build\outputs\apk\debug\app-debug.apk
 
 1. Choose a date range. The default range is January 1 of the current year to
    today.
-2. Allow photo access or select photos.
+2. On Android, allow full photo access. On the web, select the photos the browser
+   is allowed to read.
 3. ExifTrail reads capture time and GPS coordinates from each supported image.
 4. Photos are sorted chronologically. Images without usable GPS are skipped.
 5. A route is drawn on OpenStreetMap. The camera follows the Satgat character
@@ -123,8 +124,9 @@ adb install -r app\build\outputs\apk\debug\app-debug.apk
 The Android app is the direct phone-gallery workflow.
 
 1. Set `From` and `To`.
-2. Tap `Allow photos and create video`.
-3. Grant photo and media-location permission.
+2. Tap `Allow full photo access and create video`.
+3. Grant full photo and media-location permission once. On Android 14+, choose
+   **Allow all photos**, not selected photos.
 4. The app scans matching photos in the phone gallery without opening a file
    picker.
 5. Tap `Save moving video` after the route is ready.

@@ -111,7 +111,7 @@ public class MainActivity extends Activity {
         title.setPadding(0, dp(6), 0, 0);
         root.addView(title);
 
-        TextView lead = text("Choose a date range, allow photo access, and turn your memories into a moving route.", 20, 0xff4e5968, false);
+        TextView lead = text("Choose the dates once. ExifTrail scans your full photo library and builds the moving route.", 20, 0xff4e5968, false);
         lead.setPadding(0, dp(16), 0, dp(18));
         root.addView(lead);
 
@@ -128,7 +128,7 @@ public class MainActivity extends Activity {
         fromButton.setOnClickListener(v -> pickDate(from, this::refreshDates));
         toButton.setOnClickListener(v -> pickDate(to, this::refreshDates));
 
-        createButton = primaryButton("Allow photos and create video");
+        createButton = primaryButton("Allow full photo access and create video");
         createButton.setOnClickListener(v -> startRouteBuild());
         LinearLayout.LayoutParams createLp = new LinearLayout.LayoutParams(-1, dp(62));
         createLp.setMargins(0, dp(16), 0, dp(16));
@@ -141,7 +141,7 @@ public class MainActivity extends Activity {
         saveLp.setMargins(0, 0, 0, dp(16));
         root.addView(saveButton, saveLp);
 
-        status = text("No upload. Photos are only read on this phone.", 16, 0xff475569, true);
+        status = text("No upload. Tap once after choosing dates; photos stay on this phone.", 16, 0xff475569, true);
         status.setPadding(0, dp(10), 0, 0);
         root.addView(status);
 
@@ -188,11 +188,11 @@ public class MainActivity extends Activity {
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == REQ_PHOTOS && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+        if (requestCode == REQ_PHOTOS && hasPhotoPermission()) {
             buildRoute();
         } else {
             scanProgress.setVisibility(View.GONE);
-            status.setText("Photo permission is needed to scan your library by date.");
+            status.setText("Allow full photo access, not selected photos, so ExifTrail can scan the chosen dates automatically.");
         }
     }
 
@@ -351,10 +351,12 @@ public class MainActivity extends Activity {
     }
 
     private boolean hasPhotoPermission() {
-        if (Build.VERSION.SDK_INT >= 34 && checkSelfPermission(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) == PackageManager.PERMISSION_GRANTED) {
-            return true;
-        }
-        return checkSelfPermission(photoPermissions()[0]) == PackageManager.PERMISSION_GRANTED;
+        if (checkSelfPermission(photoPermissions()[0]) != PackageManager.PERMISSION_GRANTED) return false;
+        if (Build.VERSION.SDK_INT >= 29 && !hasMediaLocationPermission()) return false;
+        // A date-only scan needs the complete MediaStore library. Android 14's
+        // selected-photo permission must never be treated as full access.
+        return Build.VERSION.SDK_INT < 34
+                || checkSelfPermission(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) != PackageManager.PERMISSION_GRANTED;
     }
 
     private boolean hasMediaLocationPermission() {
@@ -363,7 +365,7 @@ public class MainActivity extends Activity {
 
     private String[] photoPermissions() {
         if (Build.VERSION.SDK_INT >= 34) {
-            return new String[]{Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED, Manifest.permission.ACCESS_MEDIA_LOCATION};
+            return new String[]{Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.ACCESS_MEDIA_LOCATION};
         }
         if (Build.VERSION.SDK_INT >= 33) {
             return new String[]{Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.ACCESS_MEDIA_LOCATION};
