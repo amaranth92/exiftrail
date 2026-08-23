@@ -424,10 +424,11 @@ public class MainActivity extends Activity {
     private boolean hasPhotoPermission() {
         if (checkSelfPermission(photoPermissions()[0]) != PackageManager.PERMISSION_GRANTED) return false;
         if (Build.VERSION.SDK_INT >= 29 && !hasMediaLocationPermission()) return false;
-        // A date-only scan needs the complete MediaStore library. Android 14's
-        // selected-photo permission must never be treated as full access.
+        // On Android 14+, full access grants READ_MEDIA_IMAGES and may leave
+        // the selected-photo permission granted as well. Check the full-image
+        // permission itself instead of treating that companion grant as partial.
         return Build.VERSION.SDK_INT < 34
-                || checkSelfPermission(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) != PackageManager.PERMISSION_GRANTED;
+                || checkSelfPermission(Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED;
     }
 
     private boolean hasMediaLocationPermission() {
@@ -658,7 +659,10 @@ public class MainActivity extends Activity {
             mapView.getLocationOnScreen(mapLocation);
             int targetScroll = scrollView.getScrollY() + mapLocation[1] - scrollLocation[1];
             scrollView.scrollTo(0, Math.max(0, targetScroll));
-            mapView.evaluateJavascript("setCamera(" + progress + "," + world + ");setProgress(" + progress + ",false);marker.setOpacity(0);line.setStyle({opacity:0});full.setStyle({opacity:0});panel.style.display='none'", ignored -> mapView.postDelayed(() -> {
+            String routeVisibility = world
+                    ? "marker.setOpacity(1);line.setStyle({opacity:1});full.setStyle({opacity:0})"
+                    : "marker.setOpacity(0);line.setStyle({opacity:0});full.setStyle({opacity:0})";
+            mapView.evaluateJavascript("setCamera(" + progress + "," + world + ");setProgress(" + progress + ",false);" + routeVisibility + ";panel.style.display='none'", ignored -> mapView.postDelayed(() -> {
                 int[] location = new int[2];
                 mapView.getLocationOnScreen(location);
                 int width = Math.min(mapView.getWidth(), getWindow().getDecorView().getWidth() - location[0]);
@@ -722,15 +726,22 @@ public class MainActivity extends Activity {
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeCap(Paint.Cap.ROUND);
         paint.setStrokeJoin(Paint.Join.ROUND);
-        paint.setStrokeWidth(8);
-        paint.setColor(0x660f172a);
-        if (frameSnapshot.world) canvas.drawPath(routePath(route, 1f, frameSnapshot, plot, 0), paint);
-        int trailStart = Math.max(0, currentIndex - 80);
-        Path active = routePath(route, progress, frameSnapshot, plot, trailStart);
-        paint.setStrokeWidth(10);
-        paint.setColor(0xff0ea5e9);
-        canvas.drawPath(active, paint);
-        drawVehicle(canvas, x, y, nextPos[0] - currentPos[0], animationFrame, characterSprite);
+        // The world snapshot already contains Leaflet's complete route. Keep
+        // native projection for local animation only so the final frame cannot
+        // drift from the map renderer used by the preview.
+        if (!frameSnapshot.world || frameSnapshot.bitmap == null) {
+            paint.setStrokeWidth(8);
+            paint.setColor(0x660f172a);
+            if (frameSnapshot.world) canvas.drawPath(routePath(route, 1f, frameSnapshot, plot, 0), paint);
+            int trailStart = Math.max(0, currentIndex - 80);
+            Path active = routePath(route, progress, frameSnapshot, plot, trailStart);
+            paint.setStrokeWidth(10);
+            paint.setColor(0xff0ea5e9);
+            canvas.drawPath(active, paint);
+        }
+        if (!frameSnapshot.world) {
+            drawVehicle(canvas, x, y, nextPos[0] - currentPos[0], animationFrame, characterSprite);
+        }
         canvas.restore();
 
         paint.setStyle(Paint.Style.FILL);
@@ -907,8 +918,8 @@ public class MainActivity extends Activity {
                 + "function ll(p){return [p.lat,p.lng]}"
                 + "function vehicleIcon(){return L.divIcon({className:'vehicle',iconSize:[24,48],iconAnchor:[12,44],html:'<span class=\"route-character-sprite\" role=\"img\" aria-label=\"route character\"></span>'})}"
                 + "function routeZoom(points){var lats=points.map(function(p){return p.lat}),lngs=points.map(function(p){return p.lng}),span=Math.max(Math.max.apply(null,lats)-Math.min.apply(null,lats),Math.max.apply(null,lngs)-Math.min.apply(null,lngs));return span>90?3:span>30?4:span>8?5:span>2?7:span>.5?9:span>.1?11:span>.02?13:span>.005?15:17}"
-                + "function setCamera(t,world){if(!routePoints.length)return;var exact=(routePoints.length-1)*Math.max(0,Math.min(1,t));var end=Math.min(routePoints.length-1,Math.floor(exact)),next=routePoints[Math.min(routePoints.length-1,end+1)],cur=routePoints[end],f=exact-end;var point=[cur.lat+(next.lat-cur.lat)*f,cur.lng+(next.lng-cur.lng)*f];if(world){map.setView([20,0],1,{animate:false});cameraMode='world'}else{map.setView(point,localZoom,{animate:false});cameraMode='local'}}"
-                + "function setProgress(t,follow){if(!routePoints.length)return;var exact=(routePoints.length-1)*Math.max(0,Math.min(1,t));var end=Math.max(0,Math.floor(exact)),next=routePoints[Math.min(routePoints.length-1,end+1)],cur=routePoints[end],f=exact-end;var point=[cur.lat+(next.lat-cur.lat)*f,cur.lng+(next.lng-cur.lng)*f];var visible=latlngs.slice(0,end+1);visible.push(point);line.setLatLngs(visible);marker.setLatLng(point);document.getElementById('time').textContent=cur.time;document.getElementById('bar').style.width=(Math.max(0,Math.min(1,t))*100).toFixed(1)+'%';if(follow&&performance.now()-lastPan>80){if(t>=.86&&cameraMode!=='world'){map.fitBounds(L.latLngBounds(latlngs),{padding:[30,30],animate:true,duration:.8});cameraMode='world'}else if(t<.86){map.setView(point,localZoom,{animate:false});cameraMode='local'}lastPan=performance.now()}}"
+                + "function setCamera(t,world){if(!routePoints.length)return;var exact=(routePoints.length-1)*Math.max(0,Math.min(1,t));var end=Math.min(routePoints.length-1,Math.floor(exact)),next=routePoints[Math.min(routePoints.length-1,end+1)],cur=routePoints[end],f=exact-end;var point=[cur.lat+(next.lat-cur.lat)*f,cur.lng+(next.lng-cur.lng)*f];if(world){map.fitBounds(L.latLngBounds(latlngs),{padding:[30,30],maxZoom:2,animate:false});cameraMode='world'}else{map.setView(point,localZoom,{animate:false});cameraMode='local'}}"
+                + "function setProgress(t,follow){if(!routePoints.length)return;var exact=(routePoints.length-1)*Math.max(0,Math.min(1,t));var end=Math.max(0,Math.floor(exact)),next=routePoints[Math.min(routePoints.length-1,end+1)],cur=routePoints[end],f=exact-end;var point=[cur.lat+(next.lat-cur.lat)*f,cur.lng+(next.lng-cur.lng)*f];var visible=latlngs.slice(0,end+1);visible.push(point);line.setLatLngs(visible);marker.setLatLng(point);document.getElementById('time').textContent=cur.time;document.getElementById('bar').style.width=(Math.max(0,Math.min(1,t))*100).toFixed(1)+'%';if(follow&&performance.now()-lastPan>80){if(t>=.86&&cameraMode!=='world'){map.fitBounds(L.latLngBounds(latlngs),{padding:[30,30],maxZoom:2,animate:true,duration:.8});cameraMode='world'}else if(t<.86){map.setView(point,localZoom,{animate:false});cameraMode='local'}lastPan=performance.now()}}"
                 + "function renderRoute(points){document.getElementById('place').textContent=points.length+' route points found';"
                 + "if(full)map.removeLayer(full);if(line)map.removeLayer(line);if(marker)map.removeLayer(marker);if(raf)cancelAnimationFrame(raf);"
                 + "routePoints=points;latlngs=points.map(ll);"
