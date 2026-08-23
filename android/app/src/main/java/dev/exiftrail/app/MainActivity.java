@@ -26,13 +26,10 @@ import android.media.MediaMuxer;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
 import android.os.ParcelFileDescriptor;
 import android.provider.MediaStore;
 import android.view.Surface;
 import android.view.Gravity;
-import android.view.PixelCopy;
 import android.view.View;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -213,8 +210,9 @@ public class MainActivity extends Activity {
         FrameLayout mapCard = new FrameLayout(this);
         mapCard.setBackground(rounded(0xffdbeafe, 0xffe5e8eb, 24));
         mapCard.setClipToOutline(true);
-        mapCard.addView(mapView, new FrameLayout.LayoutParams(-1, dp(560)));
-        LinearLayout.LayoutParams routeLp = new LinearLayout.LayoutParams(-1, dp(560));
+        int mapHeightDp = Math.round((getResources().getDisplayMetrics().widthPixels / getResources().getDisplayMetrics().density) * 840f / 720f);
+        mapCard.addView(mapView, new FrameLayout.LayoutParams(-1, dp(mapHeightDp)));
+        LinearLayout.LayoutParams routeLp = new LinearLayout.LayoutParams(-1, dp(mapHeightDp));
         routeLp.setMargins(0, 0, 0, 0);
         root.addView(mapCard, routeLp);
 
@@ -648,7 +646,12 @@ public class MainActivity extends Activity {
         AtomicReference<Bitmap> result = new AtomicReference<>();
         CountDownLatch latch = new CountDownLatch(1);
         runOnUiThread(() -> {
-            scrollView.scrollTo(0, mapView.getTop());
+            int[] scrollLocation = new int[2];
+            int[] mapLocation = new int[2];
+            scrollView.getLocationOnScreen(scrollLocation);
+            mapView.getLocationOnScreen(mapLocation);
+            int targetScroll = scrollView.getScrollY() + mapLocation[1] - scrollLocation[1];
+            scrollView.scrollTo(0, Math.max(0, targetScroll));
             mapView.evaluateJavascript("setCamera(" + progress + "," + world + ");setProgress(" + progress + ",false);marker.setOpacity(0);line.setStyle({opacity:0});full.setStyle({opacity:0});panel.style.display='none'", ignored -> mapView.postDelayed(() -> {
                 int[] location = new int[2];
                 mapView.getLocationOnScreen(location);
@@ -660,16 +663,16 @@ public class MainActivity extends Activity {
                     return;
                 }
                 Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
-                Rect source = new Rect(location[0], location[1], location[0] + width, location[1] + height);
-                PixelCopy.request(getWindow(), source, bitmap, copyResult -> {
-                    if (copyResult == PixelCopy.SUCCESS) result.set(bitmap);
-                    else bitmap.recycle();
-                    mapView.evaluateJavascript("marker.setOpacity(1);line.setStyle({opacity:1});full.setStyle({opacity:1});panel.style.display='block'", null);
-                    latch.countDown();
-                }, new Handler(Looper.getMainLooper()));
-            }, world ? 700 : 120));
+                // PixelCopy can capture a blank WebView layer while tiles are still
+                // compositing. The WebView is software-rendered, so draw its actual
+                // content into the bitmap after the tile settle delay instead.
+                mapView.draw(new Canvas(bitmap));
+                result.set(bitmap);
+                mapView.evaluateJavascript("marker.setOpacity(1);line.setStyle({opacity:1});full.setStyle({opacity:1});panel.style.display='block'", null);
+                latch.countDown();
+            }, world ? 1400 : 1000));
         });
-        latch.await(1500, TimeUnit.MILLISECONDS);
+        latch.await(5000, TimeUnit.MILLISECONDS);
         MapSnapshot camera = cameraFor(route, progress, world);
         return new MapSnapshot(result.get(), camera.centerLat, camera.centerLng, camera.zoom, camera.world);
     }
@@ -683,15 +686,15 @@ public class MainActivity extends Activity {
         int localIndex = Math.min(localSnapshots.size() - 1, Math.max(0, (int) Math.floor((progress / .82f) * localSnapshots.size())));
         MapSnapshot localSnapshot = localSnapshots.get(localIndex);
         if (progress >= .86f && worldSnapshot.bitmap != null) {
-            canvas.drawBitmap(worldSnapshot.bitmap, null, mapRect, paint);
+            drawMapBitmap(canvas, worldSnapshot.bitmap, mapRect, paint);
         } else if (progress >= .78f && worldSnapshot.bitmap != null && localSnapshot.bitmap != null) {
             paint.setAlpha((int) (255 * (1f - Math.min(1f, (progress - .78f) / .12f))));
-            canvas.drawBitmap(localSnapshot.bitmap, null, mapRect, paint);
+            drawMapBitmap(canvas, localSnapshot.bitmap, mapRect, paint);
             paint.setAlpha((int) (255 * Math.min(1f, (progress - .78f) / .12f)));
-            canvas.drawBitmap(worldSnapshot.bitmap, null, mapRect, paint);
+            drawMapBitmap(canvas, worldSnapshot.bitmap, mapRect, paint);
             paint.setAlpha(255);
         } else if (localSnapshot.bitmap != null) {
-            canvas.drawBitmap(localSnapshot.bitmap, null, mapRect, paint);
+            drawMapBitmap(canvas, localSnapshot.bitmap, mapRect, paint);
         } else {
             paint.setColor(0xfff8fafc);
             paint.setStrokeWidth(2);
@@ -746,6 +749,22 @@ public class MainActivity extends Activity {
         canvas.drawRoundRect(new RectF(56, VIDEO_HEIGHT - 70, VIDEO_WIDTH - 56, VIDEO_HEIGHT - 52), 99, 99, paint);
         paint.setColor(0xff38bdf8);
         canvas.drawRoundRect(new RectF(56, VIDEO_HEIGHT - 70, 56 + (VIDEO_WIDTH - 112) * progress, VIDEO_HEIGHT - 52), 99, 99, paint);
+    }
+
+    private void drawMapBitmap(Canvas canvas, Bitmap bitmap, RectF destination, Paint paint) {
+        float sourceAspect = bitmap.getWidth() / (float) bitmap.getHeight();
+        float destinationAspect = destination.width() / destination.height();
+        Rect source = new Rect(0, 0, bitmap.getWidth(), bitmap.getHeight());
+        if (sourceAspect > destinationAspect) {
+            int cropWidth = Math.round(bitmap.getHeight() * destinationAspect);
+            int left = (bitmap.getWidth() - cropWidth) / 2;
+            source.set(left, 0, left + cropWidth, bitmap.getHeight());
+        } else if (sourceAspect < destinationAspect) {
+            int cropHeight = Math.round(bitmap.getWidth() / destinationAspect);
+            int top = (bitmap.getHeight() - cropHeight) / 2;
+            source.set(0, top, bitmap.getWidth(), top + cropHeight);
+        }
+        canvas.drawBitmap(bitmap, source, destination, paint);
     }
 
     private void drawVehicle(Canvas canvas, float x, float y, float dx, int animationFrame, Bitmap sprite) {
