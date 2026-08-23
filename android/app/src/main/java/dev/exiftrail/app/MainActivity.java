@@ -37,6 +37,7 @@ import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.DatePicker;
 import android.widget.LinearLayout;
+import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
@@ -72,6 +73,7 @@ public class MainActivity extends Activity {
     private Button createButton;
     private Button saveButton;
     private TextView status;
+    private ProgressBar scanProgress;
     private WebView mapView;
     private ScrollView scrollView;
 
@@ -137,6 +139,13 @@ public class MainActivity extends Activity {
         status = text("No upload. Photos are only read on this phone.", 16, 0xff475569, true);
         root.addView(status);
 
+        scanProgress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        scanProgress.setMax(100);
+        scanProgress.setVisibility(View.GONE);
+        LinearLayout.LayoutParams progressLp = new LinearLayout.LayoutParams(-1, dp(10));
+        progressLp.setMargins(0, dp(10), 0, 0);
+        root.addView(scanProgress, progressLp);
+
         mapView = new WebView(this);
         WebSettings settings = mapView.getSettings();
         settings.setJavaScriptEnabled(true);
@@ -175,6 +184,7 @@ public class MainActivity extends Activity {
         if (requestCode == REQ_PHOTOS && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
             buildRoute();
         } else {
+            scanProgress.setVisibility(View.GONE);
             status.setText("Photo permission is needed to scan your library by date.");
         }
     }
@@ -183,12 +193,17 @@ public class MainActivity extends Activity {
         createButton.setEnabled(false);
         saveButton.setEnabled(false);
         status.setText("Scanning photos in the selected date range...");
+        scanProgress.setIndeterminate(true);
+        scanProgress.setVisibility(View.VISIBLE);
         points.clear();
 
         new Thread(() -> {
             ScanResult result = queryPhotos();
             runOnUiThread(() -> {
                 createButton.setEnabled(true);
+                scanProgress.setIndeterminate(false);
+                scanProgress.setProgress(0);
+                scanProgress.setVisibility(View.GONE);
                 points.clear();
                 points.addAll(result.points);
                 if (points.size() < 2) {
@@ -256,6 +271,12 @@ public class MainActivity extends Activity {
             int dateCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_TAKEN);
             int latCol = cursor.getColumnIndex(MediaStore.Images.Media.LATITUDE);
             int lngCol = cursor.getColumnIndex(MediaStore.Images.Media.LONGITUDE);
+            int totalPhotos = cursor.getCount();
+            runOnUiThread(() -> {
+                scanProgress.setIndeterminate(false);
+                scanProgress.setMax(Math.max(1, totalPhotos));
+                scanProgress.setProgress(0);
+            });
             while (cursor.moveToNext()) {
                 total += 1;
                 long id = cursor.getLong(idCol);
@@ -268,10 +289,13 @@ public class MainActivity extends Activity {
                 RoutePoint prev = rows.isEmpty() ? null : rows.get(rows.size() - 1);
                 if (prev != null && shouldSkip(prev, latLng[0], latLng[1], taken)) continue;
                 rows.add(new RoutePoint(latLng[0], latLng[1], taken));
-                if (total % 50 == 0) {
+                if (total % 10 == 0 || total == totalPhotos) {
                     int scanned = total;
                     int gps = withGps;
-                    runOnUiThread(() -> status.setText("Scanning photos... " + scanned + " checked, " + gps + " with GPS"));
+                    runOnUiThread(() -> {
+                        scanProgress.setProgress(scanned);
+                        status.setText("Scanning photos... " + scanned + "/" + totalPhotos + " checked, " + gps + " with GPS");
+                    });
                 }
             }
         }
