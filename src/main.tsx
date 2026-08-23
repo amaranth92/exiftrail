@@ -38,7 +38,7 @@ const EXIF_CONCURRENCY = Math.max(4, Math.min(8, navigator.hardwareConcurrency |
 const ACCEPTED_IMAGES = "image/*,.jpg,.jpeg,.heic,.heif";
 
 const PHOTO_TYPES = new Set(["image/jpeg", "image/jpg", "image/heic", "image/heif"]);
-const ROUTE_SPRITE = "./assets/characters/wanderer-walk.png";
+const ROUTE_SPRITE = "./assets/characters/satgat-walk-8.png";
 let activeMapController: {
   capture: (progress: number, world: boolean) => Promise<MapSnapshot>;
 } | null = null;
@@ -193,8 +193,8 @@ function localZoom(points: PhotoPoint[]) {
 function vehicleIcon() {
   return L.divIcon({
     className: "vehicle-marker",
-    iconSize: [36, 48],
-    iconAnchor: [18, 44],
+    iconSize: [24, 48],
+    iconAnchor: [12, 44],
     html: `<span class="route-character-sprite" style="--route-sprite: url('${ROUTE_SPRITE}')" role="img" aria-label="route character"></span>`,
   });
 }
@@ -410,9 +410,9 @@ function drawVehicle(
   ctx.save();
   ctx.translate(x, y);
   if (dx < 0) ctx.scale(-1, 1);
-  const frameWidth = sprite.width / 4;
-  const frame = Math.floor(animationFrame / 4) % 4;
-  ctx.drawImage(sprite, frame * frameWidth, 0, frameWidth, sprite.height, -36, -48, 72, 96);
+  const frameWidth = sprite.width / 8;
+  const frame = Math.floor(animationFrame / 3) % 8;
+  ctx.drawImage(sprite, frame * frameWidth, 0, frameWidth, sprite.height, -24, -48, 48, 96);
   ctx.restore();
 }
 

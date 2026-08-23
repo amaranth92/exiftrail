@@ -683,15 +683,15 @@ public class MainActivity extends Activity {
         canvas.translate(x, y);
         if (dx < 0) canvas.scale(-1f, 1f);
         Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
-        int frameWidth = sprite.getWidth() / 4;
-        int frame = (animationFrame / 4) % 4;
+        int frameWidth = sprite.getWidth() / 8;
+        int frame = (animationFrame / 3) % 8;
         Rect source = new Rect(frame * frameWidth, 0, (frame + 1) * frameWidth, sprite.getHeight());
-        canvas.drawBitmap(sprite, source, new RectF(-36, -48, 36, 48), paint);
+        canvas.drawBitmap(sprite, source, new RectF(-24, -48, 24, 48), paint);
         canvas.restore();
     }
 
     private Bitmap loadCharacterSprite() throws Exception {
-        try (InputStream input = getAssets().open("characters/wanderer-walk.png")) {
+        try (InputStream input = getAssets().open("characters/satgat-walk-8.png")) {
             Bitmap sprite = BitmapFactory.decodeStream(input);
             if (sprite == null) throw new IllegalStateException("Could not load route character sprite");
             return sprite;
@@ -787,7 +787,7 @@ public class MainActivity extends Activity {
         return "<!doctype html><html><head>"
                 + "<meta name='viewport' content='width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no'>"
                 + "<link rel='stylesheet' href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'>"
-                + "<style>html,body,#map{height:100%;margin:0;background:#dbeafe}.leaflet-container{font:14px system-ui}.panel{position:absolute;z-index:500;left:14px;right:14px;top:14px;background:rgba(25,31,40,.92);color:white;padding:12px 14px;border-radius:16px;font:800 14px system-ui;box-shadow:0 10px 24px rgba(25,31,40,.16)}.panel small{display:block;margin-top:4px;color:#c9d8ee;font-weight:700}.progress{height:5px;margin-top:10px;background:rgba(255,255,255,.16);border-radius:999px;overflow:hidden}.bar{height:100%;width:0;background:#5b9bff;border-radius:999px}.vehicle{border:0;background:transparent}.route-character-sprite{display:block;width:36px;height:48px;background-image:url('characters/wanderer-walk.png');background-repeat:no-repeat;background-size:400% 100%;animation:route-character-walk 520ms steps(1,end) infinite}@keyframes route-character-walk{0%{background-position:0 0}25%{background-position:33.333% 0}50%{background-position:66.667% 0}75%{background-position:100% 0}100%{background-position:0 0}}</style>"
+                + "<style>html,body,#map{height:100%;margin:0;background:#dbeafe}.leaflet-container{font:14px system-ui}.panel{position:absolute;z-index:500;left:14px;right:14px;top:14px;background:rgba(25,31,40,.92);color:white;padding:12px 14px;border-radius:16px;font:800 14px system-ui;box-shadow:0 10px 24px rgba(25,31,40,.16)}.panel small{display:block;margin-top:4px;color:#c9d8ee;font-weight:700}.progress{height:5px;margin-top:10px;background:rgba(255,255,255,.16);border-radius:999px;overflow:hidden}.bar{height:100%;width:0;background:#5b9bff;border-radius:999px}.vehicle{border:0;background:transparent}.route-character-sprite{display:block;width:24px;height:48px;background-image:url('characters/satgat-walk-8.png');background-repeat:no-repeat;background-size:800% 100%;animation:route-character-walk 800ms steps(1,end) infinite}@keyframes route-character-walk{0%{background-position:0 0}12.5%{background-position:14.286% 0}25%{background-position:28.571% 0}37.5%{background-position:42.857% 0}50%{background-position:57.143% 0}62.5%{background-position:71.429% 0}75%{background-position:85.714% 0}87.5%{background-position:100% 0}100%{background-position:0 0}}</style>"
                 + "</head><body><div id='map'></div><div id='panel' class='panel'><span id='place'>Route preview appears here</span><small id='time'>Waiting for photo GPS points</small><div class='progress'><div class='bar' id='bar'></div></div></div>"
                 + "<script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></script>"
                 + "<script>"
@@ -795,7 +795,7 @@ public class MainActivity extends Activity {
                 + "L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);"
                 + "map.setView([0,0],2);var full,line,marker,raf,lastPan=0,routePoints=[],latlngs=[],localZoom=4,cameraMode='local';"
                 + "function ll(p){return [p.lat,p.lng]}"
-                + "function vehicleIcon(){return L.divIcon({className:'vehicle',iconSize:[36,48],iconAnchor:[18,44],html:'<span class=\"route-character-sprite\" role=\"img\" aria-label=\"route character\"></span>'})}"
+                + "function vehicleIcon(){return L.divIcon({className:'vehicle',iconSize:[24,48],iconAnchor:[12,44],html:'<span class=\"route-character-sprite\" role=\"img\" aria-label=\"route character\"></span>'})}"
                 + "function routeZoom(points){var lats=points.map(function(p){return p.lat}),lngs=points.map(function(p){return p.lng}),span=Math.max(Math.max.apply(null,lats)-Math.min.apply(null,lats),Math.max.apply(null,lngs)-Math.min.apply(null,lngs));return span>90?3:span>30?4:span>8?5:span>2?7:span>.5?9:12}"
                 + "function setCamera(t,world){if(!routePoints.length)return;var exact=(routePoints.length-1)*Math.max(0,Math.min(1,t));var end=Math.min(routePoints.length-1,Math.floor(exact)),next=routePoints[Math.min(routePoints.length-1,end+1)],cur=routePoints[end],f=exact-end;var point=[cur.lat+(next.lat-cur.lat)*f,cur.lng+(next.lng-cur.lng)*f];if(world){map.setView([20,0],1,{animate:false});cameraMode='world'}else{map.setView(point,localZoom,{animate:false});cameraMode='local'}}"
                 + "function setProgress(t,follow){if(!routePoints.length)return;var exact=(routePoints.length-1)*Math.max(0,Math.min(1,t));var end=Math.max(0,Math.floor(exact)),next=routePoints[Math.min(routePoints.length-1,end+1)],cur=routePoints[end],f=exact-end;var point=[cur.lat+(next.lat-cur.lat)*f,cur.lng+(next.lng-cur.lng)*f];var visible=latlngs.slice(0,end+1);visible.push(point);line.setLatLngs(visible);marker.setLatLng(point);document.getElementById('time').textContent=cur.time;document.getElementById('bar').style.width=(Math.max(0,Math.min(1,t))*100).toFixed(1)+'%';if(follow&&performance.now()-lastPan>550){if(t>=.86&&cameraMode!=='world'){map.fitBounds(L.latLngBounds(latlngs),{padding:[30,30],animate:true,duration:.8});cameraMode='world'}else if(t<.86){if(cameraMode!=='local')map.setZoom(localZoom,{animate:false});map.panTo(point,{animate:false});cameraMode='local'}lastPan=performance.now()}}"

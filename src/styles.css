@@ -225,21 +225,25 @@ input:focus-visible,
 
 .route-character-sprite {
   display: block;
-  width: 36px;
+  width: 24px;
   height: 48px;
   background-image: var(--route-sprite);
   background-repeat: no-repeat;
-  background-size: 400% 100%;
-  animation: route-character-walk 520ms steps(1, end) infinite;
+  background-size: 800% 100%;
+  animation: route-character-walk 800ms steps(1, end) infinite;
   object-fit: contain;
   pointer-events: none;
 }
 
 @keyframes route-character-walk {
   0% { background-position: 0 0; }
-  25% { background-position: 33.333% 0; }
-  50% { background-position: 66.667% 0; }
-  75% { background-position: 100% 0; }
+  12.5% { background-position: 14.286% 0; }
+  25% { background-position: 28.571% 0; }
+  37.5% { background-position: 42.857% 0; }
+  50% { background-position: 57.143% 0; }
+  62.5% { background-position: 71.429% 0; }
+  75% { background-position: 85.714% 0; }
+  87.5% { background-position: 100% 0; }
   100% { background-position: 0 0; }
 }
 
