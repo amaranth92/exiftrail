@@ -644,12 +644,12 @@ public class MainActivity extends Activity {
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeCap(Paint.Cap.ROUND);
         paint.setStrokeJoin(Paint.Join.ROUND);
-        paint.setStrokeWidth(12);
+        paint.setStrokeWidth(8);
         paint.setColor(0x660f172a);
         if (frameSnapshot.world) canvas.drawPath(routePath(route, 1f, frameSnapshot, plot, 0), paint);
         int trailStart = Math.max(0, currentIndex - 80);
         Path active = routePath(route, progress, frameSnapshot, plot, trailStart);
-        paint.setStrokeWidth(14);
+        paint.setStrokeWidth(10);
         paint.setColor(0xff0ea5e9);
         canvas.drawPath(active, paint);
         drawVehicle(canvas, x, y, nextPos[0] - currentPos[0], animationFrame, characterSprite);

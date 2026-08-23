@@ -366,15 +366,15 @@ function drawVideoFrame(
   ctx.save();
   ctx.translate(0, 220);
   ctx.strokeStyle = "rgba(15,23,42,.26)";
-  ctx.lineWidth = 12;
+  ctx.lineWidth = 8;
   ctx.lineJoin = "round";
   const currentIndex = Math.min(route.length - 1, Math.floor(t * (route.length - 1)));
   const trailStart = Math.max(0, currentIndex - 80);
   if (useWorld) drawPolyline(ctx, route, 1, 0);
 
   ctx.strokeStyle = "#0ea5e9";
-  ctx.lineWidth = 14;
-  ctx.shadowBlur = 18;
+  ctx.lineWidth = 10;
+  ctx.shadowBlur = 12;
   ctx.shadowColor = "#0ea5e9";
   drawPolyline(ctx, route, t, trailStart);
   ctx.shadowBlur = 0;
