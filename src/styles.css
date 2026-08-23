@@ -41,11 +41,11 @@ main {
 }
 
 .brand-mark {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: #3182f6;
-  box-shadow: 0 0 0 6px #e8f3ff;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  object-fit: contain;
+  background: #e8f3ff;
 }
 
 .topbar-note {

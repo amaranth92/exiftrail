@@ -1,44 +1,113 @@
 # ExifTrail
 
-Local-first moving map videos from your own photos.
+![ExifTrail app icon](public/assets/brand/satgat-icon.png)
 
-I wanted to try the viral travel timeline videos, but I never enabled Google Timeline because I did not want to give continuous location history to Google. Then I realized my travel photos already contain enough timestamp and GPS metadata to rebuild the route locally. So I built this: a local-first travel timeline generator from your own photos.
+Turn the photos already on your phone into a chronological travel route video.
+ExifTrail reads capture time and GPS metadata locally, follows the route with a
+small wandering Satgat character, and exports a vertical video for social media.
 
-**Core idea:** No Google location history required. Your photos stay local by default.
+## Why I built it
+
+I wanted to make the travel timeline videos that are becoming popular, but I did
+not enable Google Timeline because I did not want to give Google a continuous
+record of my location history. My travel photos already had the two pieces of
+information needed for a route: when a photo was taken and where it was taken.
+
+ExifTrail was built around that idea:
+
+> A Google Timeline-style travel animation from your own photos, without turning
+> on Google Timeline.
+
+The project is open source and free to run. The default workflow keeps photo
+files and EXIF parsing on the device.
 
 ## Demo
 
-Sample export from generated test photos: [`public/demo/exiftrail-sample-route.webm`](public/demo/exiftrail-sample-route.webm)
+- Live web app: <https://amaranth92.github.io/exiftrail/>
+- GitHub repository: <https://github.com/amaranth92/exiftrail>
+- Sample export: [`public/demo/exiftrail-sample-route.webm`](public/demo/exiftrail-sample-route.webm)
 
-## What It Does
+## How it works
 
-- Android app: lets you choose a From/To date range, allow photo access once, then scans the phone photo library directly through MediaStore.
-- Web demo: reads photos selected by the user because browsers cannot scan a full phone gallery by date.
-- Reads JPG/JPEG/HEIC/HEIF photo metadata in the browser.
-- Extracts EXIF GPS coordinates and capture time.
-- Sorts photo points chronologically.
-- Removes very close duplicate points.
-- Flags suspicious GPS jumps.
-- Shows the route on OpenStreetMap via Leaflet.
-- Automatically plays a moving route preview with one small wandering-traveler character traveling smoothly through the route in photo time order.
-- Follows the route at a local map zoom, then pulls back to the full world route at the end.
-- Exports a vertical 9:16 route video for Shorts, TikTok, Instagram, Reddit, or Threads.
-- Uses the native share sheet when the browser supports sharing generated video files.
+1. Choose a date range. The default range is January 1 of the current year to
+   today.
+2. Allow photo access or select photos.
+3. ExifTrail reads capture time and GPS coordinates from each supported image.
+4. Photos are sorted chronologically. Images without usable GPS are skipped.
+5. A route is drawn on OpenStreetMap. The camera follows the Satgat character
+   at a close zoom for short routes and pulls back to a world view at the end.
+6. Review the route, then save or share the vertical video.
 
-## Privacy
+## Choose the right version
 
-- No upload by default.
-- Photos are read with the browser File API.
-- Original photos are never edited, moved, renamed, or deleted.
-- EXIF metadata is used only in memory for the current session.
-- Export uses only the route points and thumbnails you reviewed.
-- Privacy controls can round route coordinates and drop the first/last stop before export.
+### Android app: scan a phone gallery by date
 
-## Run Locally
+The Android app is the direct phone-gallery workflow.
 
-### Android App
+1. Set `From` and `To`.
+2. Tap `Allow photos and create video`.
+3. Grant photo and media-location permission.
+4. The app scans matching photos in the phone gallery without opening a file
+   picker.
+5. Tap `Save moving video` after the route is ready.
 
-This is the main path for the real phone-gallery workflow:
+The MP4 is saved to `Movies/ExifTrail` in the phone gallery.
+
+### Web app: select the photos the browser may read
+
+Browsers cannot silently scan a phone gallery by date. On the web, the date
+range filters the photos you select through the browser file picker.
+
+1. Set `From` and `To` if needed.
+2. Tap `Allow photos and create video`.
+3. Select the photos to scan.
+4. Wait for local EXIF scanning to finish.
+5. Tap `Save video` or use the native share sheet when supported.
+
+The web export is a `WebM` or `MP4` file depending on browser recording support.
+
+## Privacy and data flow
+
+- Photos are not uploaded to an ExifTrail server.
+- Original files are never edited, moved, renamed, or deleted.
+- EXIF data is read in memory for the current session.
+- Only photos with usable GPS coordinates can become route points.
+- The map uses Leaflet and OpenStreetMap tiles. Visible map tiles are requested
+  from OpenStreetMap, so keep the required attribution and follow its tile
+  policy. The photo library itself is not sent to OpenStreetMap.
+- Do not publish a route that exposes a private home, hotel, or workplace. The
+  current export draws the route as captured; redact sensitive points before
+  sharing if necessary.
+
+## Supported images and route rules
+
+- Supported web formats: JPG, JPEG, HEIC, and HEIF.
+- GPS latitude and longitude are required for a route point.
+- Capture time comes from EXIF when available; the browser falls back to the
+  file modification time when EXIF capture time is missing.
+- Chronological sorting is applied before drawing the route.
+- Very close duplicate points are removed.
+- Suspiciously large GPS jumps are flagged and excluded from the active route.
+- A route needs at least two valid points.
+
+## Build and test locally
+
+### Web
+
+```powershell
+npm install
+npm run dev
+```
+
+Open the Vite URL shown in the terminal.
+
+```powershell
+npm run check
+npm run build
+npm run smoke
+```
+
+### Android
 
 ```powershell
 cd android
@@ -46,91 +115,28 @@ cd android
 adb install -r app\build\outputs\apk\debug\app-debug.apk
 ```
 
-Open ExifTrail on the phone, choose From/To, then tap **Allow photos and create video**. After Android photo permission is granted, the app scans matching photos by date, extracts GPS EXIF locally, and plays the route on OpenStreetMap with a moving marker.
+The Android app needs a connected device or emulator with photo permissions.
 
-Tap **Save moving video** after the route is created. The Android app renders a vertical MP4 and saves it to the phone gallery under `Movies/ExifTrail`.
+## Project layout
 
-The saved video follows the route through local map views, drawing only the route reached so far. It then fades to a zoomed-out world view where the complete route is visible. The moving character is a generated transparent wanderer sprite with interpolation, direction flip, tilt, and a small walking bounce. A fallback grid is used only if the map cannot be captured before export finishes.
-
-Map note: ExifTrail uses Leaflet + OpenStreetMap tiles. It does not bulk-prefetch map tiles; it only loads visible map tiles while previewing or exporting. Keep the required attribution visible and follow the [OpenStreetMap tile policy](https://operations.osmfoundation.org/policies/tiles/).
-
-The route character asset and its generation note are listed in `public/assets/characters/LICENSE.txt` and copied into the Android app assets. Legacy vehicle files remain in the repository but are not used by the current renderer.
-
-### Web Demo
-
-```bash
-npm install
-npm run dev
+```text
+src/main.tsx                         Web UI, EXIF scan, map preview, WebM export
+src/route.ts                          Route normalization and duplicate filtering
+public/assets/characters/satgat-walk-8.png
+                                      Eight-frame generated Satgat walking sprite
+public/assets/brand/satgat-icon.png   App and README icon
+android/app/src/main/java/...         Native gallery scan and MP4 renderer
+android/app/src/main/assets/...       Android runtime assets
+tests/smoke.spec.ts                   Browser smoke tests
 ```
 
-Open the local Vite URL, select photos, review the moving route, then save/share the video.
+## Funding
 
-## Use On A Phone
-
-1. Open the deployed site on your phone.
-2. Optional: set a start/end date.
-3. Tap **Allow photos and create video**.
-4. Select the album/photos you want to turn into a route video.
-5. ExifTrail reads photo time/GPS locally and automatically animates the route.
-6. Tap **Save video**.
-7. Post the generated vertical video to Reels, TikTok, Shorts, Threads, or Reddit.
-
-Browser note: websites cannot scan a phone photo library by date without a user file picker. The Android app exists for the direct From/To gallery scan flow.
-
-No personal photos are required for automated tests. Synthetic GPS JPEG files live in `public/samples/`.
-
-## Monetization Notes
-
-For Android, use AdMob after the app is stable enough for review. The practical first ad placement is a rewarded ad before premium exports, or a small banner away from the export flow. Do not block the basic route preview behind an ad.
-
-For the web demo, use AdSense only after the site has enough original public content, clear navigation, privacy information, and policy-compliant pages. A thin single-tool page is usually weak for AdSense review.
-
-Recommended rollout:
-
-1. Ship the Android app with local photo scanning and MP4 export.
-2. Add privacy policy and Play Store listing.
-3. Add AdMob test ads only.
-4. Replace test IDs with real ad unit IDs after AdMob approval.
-5. Keep the website as a landing page, docs, and demo; apply for AdSense later when it has stronger content.
-
-## MVP Status
-
-Done:
-
-- Multi-photo import
-- Concurrent EXIF parsing for larger folders
-- Optional date range filter
-- Synthetic sample EXIF photo import
-- EXIF GPS/time extraction
-- GPS-missing photo skip summary
-- Chronological route
-- Date segment filter
-- Near-duplicate cleanup
-- Suspicious jump warning
-- Basic privacy scrubber
-- Leaflet/OpenStreetMap preview
-- Animation preview
-- 1080x1920 WebM export
-
-Later:
-
-- More reliable HEIC support across browsers
-- Optional reverse geocoding, only after clear user consent because it sends coordinates to a lookup service
-- Music
-- More visual templates
-- GPX/KML export
-- Richer privacy scrubber
-
-## Share Copy
-
-> I didn't enable Google Timeline, so I rebuilt my travel route from photo EXIF instead.
-
-> A local-first travel timeline generator from your own photos.
-
-> No Google location history required.
-
-If this helped you make a travel route video without turning on continuous location history, a GitHub star helps the project get found.
+If ExifTrail saves you time, a small sponsorship helps keep the local-first
+workflow and Android export maintained. The repository includes a GitHub
+Sponsors button through [`.github/FUNDING.yml`](.github/FUNDING.yml).
 
 ## License
 
-MIT
+MIT. The Satgat character and app icon are generated project assets; see
+[`public/assets/characters/LICENSE.txt`](public/assets/characters/LICENSE.txt).

@@ -584,7 +584,7 @@ function App() {
   return (
     <main className="app-shell">
       <header className="topbar">
-        <div className="brand"><span className="brand-mark" />ExifTrail</div>
+        <div className="brand"><img className="brand-mark" src="./assets/brand/satgat-icon.png" alt="" />ExifTrail</div>
         <span className="topbar-note">Private by default</span>
       </header>
 
