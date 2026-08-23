@@ -2,9 +2,11 @@ package dev.exiftrail.app;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.app.DatePickerDialog;
 import android.content.ContentValues;
 import android.content.ContentUris;
+import android.content.Intent;
 import android.content.res.ColorStateList;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
@@ -29,6 +31,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.ParcelFileDescriptor;
 import android.provider.MediaStore;
+import android.provider.Settings;
 import android.view.Surface;
 import android.view.Gravity;
 import android.view.PixelCopy;
@@ -179,10 +182,21 @@ public class MainActivity extends Activity {
             return;
         }
         if (!hasPhotoPermission()) {
-            requestPermissions(photoPermissions(), REQ_PHOTOS);
+            requestPhotoAccess();
             return;
         }
         buildRoute();
+    }
+
+    private void requestPhotoAccess() {
+        if (Build.VERSION.SDK_INT >= 34
+                && checkSelfPermission(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) == PackageManager.PERMISSION_GRANTED) {
+            // In partial-access mode Android considers both media permissions
+            // granted. Request READ_MEDIA_IMAGES again to reopen the full-access dialog.
+            requestPermissions(new String[]{Manifest.permission.READ_MEDIA_IMAGES}, REQ_PHOTOS);
+            return;
+        }
+        requestPermissions(photoPermissions(), REQ_PHOTOS);
     }
 
     @Override
@@ -193,7 +207,19 @@ public class MainActivity extends Activity {
         } else {
             scanProgress.setVisibility(View.GONE);
             status.setText("Allow full photo access, not selected photos, so ExifTrail can scan the chosen dates automatically.");
+            new AlertDialog.Builder(this)
+                    .setTitle("Full photo access is required")
+                    .setMessage("ExifTrail needs access to the complete photo library to search only the From-To dates. Choose Allow all photos in the next Android permission screen.")
+                    .setPositiveButton("Open app settings", (dialog, which) -> openAppSettings())
+                    .setNegativeButton("Close", null)
+                    .show();
         }
+    }
+
+    private void openAppSettings() {
+        Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+        intent.setData(Uri.parse("package:" + getPackageName()));
+        startActivity(intent);
     }
 
     private void buildRoute() {
