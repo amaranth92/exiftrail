@@ -490,10 +490,18 @@ function RouteMap({ points, progress }: { points: PhotoPoint[]; progress: number
         const index = Math.min(active.length - 1, Math.floor(value * (active.length - 1)));
         if (world) map.setView([20, 0], 1, { animate: false });
         else map.setView([active[index].lat, active[index].lng], localZoom(active), { animate: false });
-        await wait(350);
-        const image = await html2canvas(element, { backgroundColor: "#dbeafe", imageTimeout: 3_000, logging: false, useCORS: true });
-        const size = map.getSize();
-        return { image, viewport: { centerLat: map.getCenter().lat, centerLng: map.getCenter().lng, zoom: map.getZoom(), width: size.x, height: size.y, world } };
+        map.invalidateSize(false);
+        routeRef.current?.setStyle({ opacity: 0 });
+        markerRef.current?.setOpacity(0);
+        try {
+          await wait(350);
+          const image = await html2canvas(element, { backgroundColor: "#dbeafe", imageTimeout: 3_000, logging: false, useCORS: true });
+          const size = map.getSize();
+          return { image, viewport: { centerLat: map.getCenter().lat, centerLng: map.getCenter().lng, zoom: map.getZoom(), width: size.x, height: size.y, world } };
+        } finally {
+          routeRef.current?.setStyle({ opacity: 1 });
+          markerRef.current?.setOpacity(1);
+        }
       },
     };
     return () => {
