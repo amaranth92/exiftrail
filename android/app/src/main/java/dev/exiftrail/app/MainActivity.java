@@ -687,7 +687,7 @@ public class MainActivity extends Activity {
             scrollView.scrollTo(0, Math.max(0, targetScroll));
             String routeVisibility = world
                     ? "marker.setOpacity(0);line.setStyle({opacity:0});full.setStyle({opacity:1})"
-                    : "marker.setOpacity(0);line.setStyle({opacity:0});full.setStyle({opacity:0})";
+                    : "marker.setOpacity(0);line.setStyle({opacity:1});full.setStyle({opacity:0})";
             mapView.evaluateJavascript("setCamera(" + progress + "," + world + ");setProgress(" + progress + ",false);" + routeVisibility + ";panel.style.display='none'", ignored -> mapView.postDelayed(() -> {
                 int[] location = new int[2];
                 mapView.getLocationOnScreen(location);
@@ -752,17 +752,7 @@ public class MainActivity extends Activity {
         float y = currentPos[1] + (nextPos[1] - currentPos[1]) * fraction;
         canvas.save();
         canvas.clipRect(mapRect);
-        paint.setStyle(Paint.Style.STROKE);
-        paint.setStrokeCap(Paint.Cap.ROUND);
-        paint.setStrokeJoin(Paint.Join.ROUND);
         if (!frameSnapshot.world) {
-            Path visibleRoute = routePath(route, progress, frameSnapshot, plot, 0);
-            paint.setStrokeWidth(9);
-            paint.setColor(0x660f172a);
-            canvas.drawPath(visibleRoute, paint);
-            paint.setStrokeWidth(6);
-            paint.setColor(0xff0ea5e9);
-            canvas.drawPath(visibleRoute, paint);
             drawVehicle(canvas, x, y, nextPos[0] - currentPos[0], animationFrame, characterSprite);
         }
         canvas.restore();
