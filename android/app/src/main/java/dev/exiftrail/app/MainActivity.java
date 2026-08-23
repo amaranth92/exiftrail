@@ -18,6 +18,8 @@ import android.graphics.Path;
 import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.AnimationDrawable;
+import android.graphics.drawable.BitmapDrawable;
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.ExifInterface;
@@ -88,7 +90,10 @@ public class MainActivity extends Activity {
     private View statusCard;
     private View loadingView;
     private TextView loadingStatus;
+    private AnimationDrawable loadingAnimation;
     private File preparedVideoFile;
+    private boolean mapReady;
+    private List<RoutePoint> pendingMapRoute;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -165,7 +170,18 @@ public class MainActivity extends Activity {
         settings.setAllowFileAccessFromFileURLs(true);
         settings.setAllowUniversalAccessFromFileURLs(true);
         mapView.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
-        mapView.setWebViewClient(new WebViewClient());
+        mapView.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                mapReady = true;
+                if (pendingMapRoute != null) {
+                    List<RoutePoint> route = pendingMapRoute;
+                    pendingMapRoute = null;
+                    renderMapRoute(route);
+                }
+            }
+        });
+        mapReady = false;
         mapView.loadDataWithBaseURL("file:///android_asset/", mapHtml(), "text/html", "UTF-8", null);
         mapCard.addView(mapView, new FrameLayout.LayoutParams(-1, dp(mapHeightDp)));
         mapCard.setVisibility(View.GONE);
@@ -200,8 +216,8 @@ public class MainActivity extends Activity {
         loadingView.setClickable(true);
         loadingView.setFocusable(true);
         ImageView loadingCharacter = new ImageView(this);
-        Bitmap characterFrame = loadCharacterFrame();
-        if (characterFrame != null) loadingCharacter.setImageBitmap(characterFrame);
+        loadingAnimation = loadCharacterAnimation();
+        if (loadingAnimation != null) loadingCharacter.setImageDrawable(loadingAnimation);
         loadingCharacter.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
         ((LinearLayout) loadingView).addView(loadingCharacter, new LinearLayout.LayoutParams(dp(132), dp(132)));
         TextView loadingTitle = text("Building your journey", 22, 0xff191f28, true);
@@ -223,14 +239,19 @@ public class MainActivity extends Activity {
         return screen;
     }
 
-    private Bitmap loadCharacterFrame() {
+    private AnimationDrawable loadCharacterAnimation() {
         try (InputStream input = getAssets().open("characters/satgat-walk-8.png")) {
             Bitmap sheet = BitmapFactory.decodeStream(input);
             if (sheet == null) return null;
             int frameWidth = sheet.getWidth() / 8;
-            Bitmap frame = Bitmap.createBitmap(sheet, 0, 0, frameWidth, sheet.getHeight());
+            AnimationDrawable animation = new AnimationDrawable();
+            for (int i = 0; i < 8; i++) {
+                Bitmap frame = Bitmap.createBitmap(sheet, i * frameWidth, 0, frameWidth, sheet.getHeight());
+                animation.addFrame(new BitmapDrawable(getResources(), frame), 150);
+            }
+            animation.setOneShot(false);
             sheet.recycle();
-            return frame;
+            return animation;
         } catch (Exception ignored) {
             return null;
         }
@@ -254,6 +275,7 @@ public class MainActivity extends Activity {
         scanProgress.setMax(100);
         scanProgress.setProgress(0);
         loadingStatus.setText("Scanning photos...");
+        if (loadingAnimation != null) loadingAnimation.start();
         fromButton.setEnabled(false);
         toButton.setEnabled(false);
         createButton.setEnabled(false);
@@ -271,6 +293,7 @@ public class MainActivity extends Activity {
 
     private void hideLoadingScreen() {
         loadingView.setVisibility(View.GONE);
+        if (loadingAnimation != null) loadingAnimation.stop();
         fromButton.setEnabled(true);
         toButton.setEnabled(true);
         createButton.setEnabled(true);
@@ -308,6 +331,8 @@ public class MainActivity extends Activity {
 
     private void buildRoute() {
         showLoadingScreen();
+        mapCard.setVisibility(View.VISIBLE);
+        statusCard.setVisibility(View.GONE);
         if (preparedVideoFile != null) {
             preparedVideoFile.delete();
             preparedVideoFile = null;
@@ -373,6 +398,7 @@ public class MainActivity extends Activity {
                     saveButton.setVisibility(View.VISIBLE);
                     saveButton.setEnabled(true);
                     status.setText("Saved moving route video to Gallery: " + uri);
+                    renderMapRoute(points);
                 });
             } catch (Exception e) {
                 runOnUiThread(() -> {
@@ -683,6 +709,9 @@ public class MainActivity extends Activity {
                 updateLoadingProgress(prepProgress, "Preparing map frames... " + captured + " / " + (localSnapshotCount + 1) + " (" + prepProgress + "%)");
             }
             mapSnapshots.add(captureMapFrame(route, 1f, true));
+            runOnUiThread(() -> mapView.evaluateJavascript(
+                    "marker.setOpacity(1);line.setStyle({opacity:1});full.setStyle({opacity:1});document.body.classList.remove('exporting');document.getElementById('panel').style.display='block'",
+                    null));
             updateLoadingProgress(55, "Preparing map frames... " + (localSnapshotCount + 1) + " / " + (localSnapshotCount + 1) + " (55%)");
             encoder.start();
             encoderStarted = true;
@@ -756,6 +785,7 @@ public class MainActivity extends Activity {
 
     private MapSnapshot captureMapFrame(List<RoutePoint> route, float progress, boolean world) throws InterruptedException {
         AtomicReference<Bitmap> result = new AtomicReference<>();
+        AtomicReference<double[]> cameraValues = new AtomicReference<>();
         CountDownLatch latch = new CountDownLatch(1);
         runOnUiThread(() -> {
             int[] scrollLocation = new int[2];
@@ -765,15 +795,26 @@ public class MainActivity extends Activity {
             int targetScroll = scrollView.getScrollY() + mapLocation[1] - scrollLocation[1];
             scrollView.scrollTo(0, Math.max(0, targetScroll));
             String routeVisibility = world
-                    ? "marker.setOpacity(0);line.setStyle({opacity:0});full.setStyle({opacity:1})"
-                    : "marker.setOpacity(0);line.setStyle({opacity:1});full.setStyle({opacity:0})";
-            mapView.evaluateJavascript("setCamera(" + progress + "," + world + ");setProgress(" + progress + ",false);" + routeVisibility + ";panel.style.display='none'", ignored -> mapView.postDelayed(() -> {
+                    ? "if(marker)marker.setOpacity(0);if(line)line.setStyle({opacity:0});if(full)full.setStyle({opacity:1})"
+                    : "if(marker)marker.setOpacity(0);if(line)line.setStyle({opacity:1});if(full)full.setStyle({opacity:0})";
+            mapView.evaluateJavascript("document.body.classList.add('exporting');setCamera(" + progress + "," + world + ");setProgress(" + progress + ",false);" + routeVisibility + ";document.getElementById('panel').style.display='none';map.getCenter().lat+','+map.getCenter().lng+','+map.getZoom()", value -> {
+                try {
+                    String camera = value == null ? "" : value;
+                    if (camera.length() >= 2 && camera.charAt(0) == '"' && camera.charAt(camera.length() - 1) == '"') {
+                        camera = camera.substring(1, camera.length() - 1);
+                    }
+                    String[] parts = camera.split(",");
+                    if (parts.length == 3) {
+                        cameraValues.set(new double[]{Double.parseDouble(parts[0]), Double.parseDouble(parts[1]), Double.parseDouble(parts[2])});
+                    }
+                } catch (Exception ignored) {
+                }
+                mapView.postDelayed(() -> {
                 int[] location = new int[2];
                 mapView.getLocationOnScreen(location);
                 int width = Math.min(mapView.getWidth(), getWindow().getDecorView().getWidth() - location[0]);
                 int height = Math.min(mapView.getHeight(), getWindow().getDecorView().getHeight() - location[1]);
                 if (width <= 0 || height <= 0) {
-                    mapView.evaluateJavascript("marker.setOpacity(1);line.setStyle({opacity:1});full.setStyle({opacity:1});panel.style.display='block'", null);
                     latch.countDown();
                     return;
                 }
@@ -783,12 +824,16 @@ public class MainActivity extends Activity {
                 // content into the bitmap after the tile settle delay instead.
                 mapView.draw(new Canvas(bitmap));
                 result.set(bitmap);
-                mapView.evaluateJavascript("marker.setOpacity(1);line.setStyle({opacity:1});full.setStyle({opacity:1});panel.style.display='block'", null);
                 latch.countDown();
-            }, world ? 1400 : 1000));
+                }, world ? 1400 : 1000);
+            });
         });
         latch.await(5000, TimeUnit.MILLISECONDS);
         MapSnapshot camera = cameraFor(route, progress, world);
+        double[] actualCamera = cameraValues.get();
+        if (actualCamera != null) {
+            camera = new MapSnapshot(result.get(), actualCamera[0], actualCamera[1], (int) Math.round(actualCamera[2]), world);
+        }
         return new MapSnapshot(result.get(), camera.centerLat, camera.centerLng, camera.zoom, camera.world);
     }
 
@@ -831,6 +876,24 @@ public class MainActivity extends Activity {
         float y = currentPos[1] + (nextPos[1] - currentPos[1]) * fraction;
         canvas.save();
         canvas.clipRect(mapRect);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeCap(Paint.Cap.ROUND);
+        paint.setStrokeJoin(Paint.Join.ROUND);
+        paint.setStrokeWidth(3);
+        if (progress < .78f) {
+            paint.setColor(0xff0ea5e9);
+            canvas.drawPath(routePath(route, progress, localSnapshot, plot, 0), paint);
+        } else if (progress < .90f) {
+            paint.setColor(0xff0ea5e9);
+            paint.setAlpha((int) (255 * (1f - Math.min(1f, (progress - .78f) / .12f))));
+            canvas.drawPath(routePath(route, progress, localSnapshot, plot, 0), paint);
+            paint.setAlpha((int) (255 * Math.min(1f, (progress - .78f) / .12f)));
+            canvas.drawPath(routePath(route, 1f, worldSnapshot, plot, 0), paint);
+            paint.setAlpha(255);
+        } else {
+            paint.setColor(0xff0ea5e9);
+            canvas.drawPath(routePath(route, 1f, worldSnapshot, plot, 0), paint);
+        }
         if (!frameSnapshot.world) {
             drawVehicle(canvas, x, y, nextPos[0] - currentPos[0], animationFrame, characterSprite);
         }
@@ -874,7 +937,7 @@ public class MainActivity extends Activity {
         canvas.translate(x, y);
         Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
         int frameWidth = sprite.getWidth() / 8;
-        int frame = (animationFrame / 6) % 8;
+        int frame = (animationFrame / 5) % 8;
         Rect source = new Rect(frame * frameWidth, 0, (frame + 1) * frameWidth, sprite.getHeight());
         canvas.drawBitmap(sprite, source, new RectF(-18, -72, 18, 0), paint);
         canvas.restore();
@@ -1003,6 +1066,10 @@ public class MainActivity extends Activity {
     }
 
     private void renderMapRoute(List<RoutePoint> route) {
+        if (!mapReady) {
+            pendingMapRoute = new ArrayList<>(route);
+            return;
+        }
         StringBuilder json = new StringBuilder("[");
         for (int i = 0; i < route.size(); i++) {
             RoutePoint p = route.get(i);
@@ -1020,11 +1087,11 @@ public class MainActivity extends Activity {
         return "<!doctype html><html><head>"
                 + "<meta name='viewport' content='width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no'>"
                 + "<link rel='stylesheet' href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'>"
-                + "<style>html,body,#map{height:100%;margin:0;background:#dbeafe}.leaflet-container{font:14px system-ui}.panel{position:absolute;z-index:500;left:14px;right:14px;top:14px;background:rgba(25,31,40,.92);color:white;padding:12px 14px;border-radius:16px;font:800 14px system-ui;box-shadow:0 10px 24px rgba(25,31,40,.16)}.panel small{display:block;margin-top:4px;color:#c9d8ee;font-weight:700}.progress{height:5px;margin-top:10px;background:rgba(255,255,255,.16);border-radius:999px;overflow:hidden}.bar{height:100%;width:0;background:#5b9bff;border-radius:999px}.vehicle{border:0;background:transparent;filter:drop-shadow(0 2px 2px rgba(15,23,42,.38))}.route-character-sprite{display:block;width:32px;height:64px;background-image:url('characters/satgat-walk-8.png');background-repeat:no-repeat;background-size:800% 100%;image-rendering:pixelated;animation:route-character-walk 1200ms steps(1,end) infinite}@keyframes route-character-walk{0%{background-position:0 0}12.5%{background-position:14.286% 0}25%{background-position:28.571% 0}37.5%{background-position:42.857% 0}50%{background-position:57.143% 0}62.5%{background-position:71.429% 0}75%{background-position:85.714% 0}87.5%{background-position:100% 0}100%{background-position:0 0}}</style>"
+                + "<style>html,body,#map{height:100%;margin:0;background:#dbeafe}.leaflet-container{font:14px system-ui}.panel{position:absolute;z-index:500;left:14px;right:14px;top:14px;background:rgba(25,31,40,.92);color:white;padding:12px 14px;border-radius:16px;font:800 14px system-ui;box-shadow:0 10px 24px rgba(25,31,40,.16)}body.exporting .panel{display:none!important}.panel small{display:block;margin-top:4px;color:#c9d8ee;font-weight:700}.progress{height:5px;margin-top:10px;background:rgba(255,255,255,.16);border-radius:999px;overflow:hidden}.bar{height:100%;width:0;background:#5b9bff;border-radius:999px}.vehicle{border:0;background:transparent;filter:drop-shadow(0 2px 2px rgba(15,23,42,.38))}.route-character-sprite{display:block;width:32px;height:64px;background-image:url('characters/satgat-walk-8.png');background-repeat:no-repeat;background-size:800% 100%;image-rendering:pixelated;animation:route-character-walk 1200ms steps(1,end) infinite}@keyframes route-character-walk{0%{background-position:0 0}12.5%{background-position:14.286% 0}25%{background-position:28.571% 0}37.5%{background-position:42.857% 0}50%{background-position:57.143% 0}62.5%{background-position:71.429% 0}75%{background-position:85.714% 0}87.5%{background-position:100% 0}100%{background-position:0 0}}</style>"
                 + "</head><body><div id='map'></div><div id='panel' class='panel'><span id='place'>Route preview appears here</span><small id='time'>Waiting for photo GPS points</small><div class='progress'><div class='bar' id='bar'></div></div></div>"
                 + "<script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></script>"
                 + "<script>"
-                + "var map=L.map('map',{zoomControl:false,attributionControl:true,preferCanvas:true});"
+                + "var map=L.map('map',{zoomControl:false,attributionControl:true,preferCanvas:false});"
                 + "L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);"
                 + "map.setView([0,0],2);var full,line,marker,raf,lastPan=0,routePoints=[],latlngs=[],localZoom=4,cameraMode='local';"
                 + "function ll(p){return [p.lat,p.lng]}"
@@ -1036,8 +1103,8 @@ public class MainActivity extends Activity {
                 + "function renderRoute(points){document.getElementById('place').textContent=points.length+' route points found';"
                 + "if(full)map.removeLayer(full);if(line)map.removeLayer(line);if(marker)map.removeLayer(marker);if(raf)cancelAnimationFrame(raf);"
                 + "routePoints=points;latlngs=points.map(ll);"
-                + "full=L.polyline(latlngs,{color:'#0ea5e9',opacity:1,weight:4,lineCap:'round',lineJoin:'round'}).addTo(map);"
-                + "line=L.polyline([], {color:'#0ea5e9',weight:4,lineCap:'round',lineJoin:'round'}).addTo(map);"
+                + "full=L.polyline(latlngs,{color:'#0ea5e9',opacity:1,weight:2,lineCap:'round',lineJoin:'round'}).addTo(map);"
+                + "line=L.polyline([], {color:'#0ea5e9',weight:2,lineCap:'round',lineJoin:'round'}).addTo(map);"
                 + "marker=L.marker(ll(points[0]),{icon:vehicleIcon(),interactive:false}).addTo(map);"
                 + "localZoom=routeZoom(points);setCamera(0,false);var start=0,duration=10000;"
                 + "setProgress(0,true);function step(ts){if(!start)start=ts;var t=Math.min((ts-start)/duration,1);setProgress(t,true);if(t<1)raf=requestAnimationFrame(step)}"
