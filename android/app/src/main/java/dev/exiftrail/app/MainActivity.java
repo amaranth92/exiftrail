@@ -85,6 +85,7 @@ public class MainActivity extends Activity {
     private ProgressBar scanProgress;
     private WebView mapView;
     private ScrollView scrollView;
+    private FrameLayout landingArea;
     private LinearLayout dateRow;
     private FrameLayout mapCard;
     private View statusCard;
@@ -114,9 +115,10 @@ public class MainActivity extends Activity {
         FrameLayout screen = new FrameLayout(this);
         ScrollView scroll = new ScrollView(this);
         scrollView = scroll;
+        scroll.setFillViewport(true);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(20), 0, dp(20), dp(28));
+        root.setPadding(dp(20), dp(10), dp(20), dp(28));
         root.setBackgroundColor(Color.WHITE);
         scroll.addView(root);
         screen.addView(scroll, new FrameLayout.LayoutParams(-1, -1));
@@ -134,13 +136,22 @@ public class MainActivity extends Activity {
         topbar.addView(brand, new LinearLayout.LayoutParams(0, -2, 1));
         root.addView(topbar, new LinearLayout.LayoutParams(-1, dp(72)));
 
+        landingArea = new FrameLayout(this);
+        LinearLayout landingControls = new LinearLayout(this);
+        landingControls.setOrientation(LinearLayout.VERTICAL);
+        landingControls.setGravity(Gravity.CENTER_HORIZONTAL);
+        FrameLayout.LayoutParams landingControlsLp = new FrameLayout.LayoutParams(-1, -2, Gravity.CENTER);
+        landingControlsLp.setMargins(0, dp(12), 0, dp(12));
+        landingArea.addView(landingControls, landingControlsLp);
+        root.addView(landingArea, new LinearLayout.LayoutParams(-1, 0, 1f));
+
         dateRow = new LinearLayout(this);
         dateRow.setOrientation(LinearLayout.HORIZONTAL);
         dateRow.setGravity(Gravity.CENTER);
         dateRow.setWeightSum(2);
         LinearLayout.LayoutParams dateRowLp = new LinearLayout.LayoutParams(-1, -2);
-        dateRowLp.setMargins(0, dp(22), 0, dp(12));
-        root.addView(dateRow, dateRowLp);
+        dateRowLp.setMargins(0, 0, 0, dp(12));
+        landingControls.addView(dateRow, dateRowLp);
 
         fromButton = secondaryButton();
         toButton = secondaryButton();
@@ -153,7 +164,7 @@ public class MainActivity extends Activity {
         createButton.setOnClickListener(v -> startRouteBuild());
         LinearLayout.LayoutParams createLp = new LinearLayout.LayoutParams(-1, dp(56));
         createLp.setMargins(0, 0, 0, dp(18));
-        root.addView(createButton, createLp);
+        landingControls.addView(createButton, createLp);
 
         mapCard = new FrameLayout(this);
         mapCard.setBackground(rounded(0xffdbeafe, 0xffe5e8eb, 24));
@@ -174,6 +185,7 @@ public class MainActivity extends Activity {
             @Override
             public void onPageFinished(WebView view, String url) {
                 mapReady = true;
+                view.postDelayed(() -> view.evaluateJavascript("map.invalidateSize(false)", null), 250);
                 if (pendingMapRoute != null) {
                     List<RoutePoint> route = pendingMapRoute;
                     pendingMapRoute = null;
@@ -330,6 +342,7 @@ public class MainActivity extends Activity {
     }
 
     private void buildRoute() {
+        compactLandingArea();
         showLoadingScreen();
         mapCard.setVisibility(View.VISIBLE);
         statusCard.setVisibility(View.GONE);
@@ -493,6 +506,14 @@ public class MainActivity extends Activity {
         } catch (Exception ignored) {
             return null;
         }
+    }
+
+    private void compactLandingArea() {
+        if (landingArea == null) return;
+        LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) landingArea.getLayoutParams();
+        params.height = LinearLayout.LayoutParams.WRAP_CONTENT;
+        params.weight = 0f;
+        landingArea.setLayoutParams(params);
     }
 
     private float[] readOriginalLatLng(Uri uri) {
@@ -699,6 +720,12 @@ public class MainActivity extends Activity {
             int totalFrames = VIDEO_SECONDS * VIDEO_FPS;
             Bitmap characterSprite = loadCharacterSprite();
             Thread.sleep(1200);
+            CountDownLatch routeReady = new CountDownLatch(1);
+            runOnUiThread(() -> mapView.evaluateJavascript(
+                    "map.invalidateSize(false);renderRoute(" + routeJson(route) + ");routePoints.length",
+                    value -> routeReady.countDown()
+            ));
+            routeReady.await(5000, TimeUnit.MILLISECONDS);
             List<MapSnapshot> mapSnapshots = new ArrayList<>();
             final int localSnapshotCount = 36;
             for (int i = 0; i < localSnapshotCount; i++) {
@@ -879,7 +906,7 @@ public class MainActivity extends Activity {
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeCap(Paint.Cap.ROUND);
         paint.setStrokeJoin(Paint.Join.ROUND);
-        paint.setStrokeWidth(3);
+        paint.setStrokeWidth(6);
         if (progress < .78f) {
             paint.setColor(0xff0ea5e9);
             canvas.drawPath(routePath(route, progress, localSnapshot, plot, 0), paint);
@@ -985,10 +1012,13 @@ public class MainActivity extends Activity {
         double centerX = ((snapshot.centerLng + 180d) / 360d) * scale;
         double centerSin = Math.sin(Math.toRadians(Math.max(-85.05112878, Math.min(85.05112878, snapshot.centerLat))));
         double centerY = (0.5d - Math.log((1d + centerSin) / (1d - centerSin)) / (4d * Math.PI)) * scale;
+        double deltaX = pointX - centerX;
+        while (deltaX > scale / 2d) deltaX -= scale;
+        while (deltaX < -scale / 2d) deltaX += scale;
         float bitmapWidth = snapshot.bitmap == null ? plot.width() : snapshot.bitmap.getWidth();
         float bitmapHeight = snapshot.bitmap == null ? plot.height() : snapshot.bitmap.getHeight();
         Rect source = sourceRect(snapshot.bitmap, plot);
-        float bitmapX = bitmapWidth / 2f + (float) (pointX - centerX);
+        float bitmapX = bitmapWidth / 2f + (float) deltaX;
         float bitmapY = bitmapHeight / 2f + (float) (pointY - centerY);
         return new float[]{
                 plot.left + (bitmapX - source.left) * plot.width() / source.width(),
@@ -1070,6 +1100,10 @@ public class MainActivity extends Activity {
             pendingMapRoute = new ArrayList<>(route);
             return;
         }
+        mapView.evaluateJavascript("map.invalidateSize(false);renderRoute(" + routeJson(route) + ")", null);
+    }
+
+    private String routeJson(List<RoutePoint> route) {
         StringBuilder json = new StringBuilder("[");
         for (int i = 0; i < route.size(); i++) {
             RoutePoint p = route.get(i);
@@ -1079,8 +1113,7 @@ public class MainActivity extends Activity {
                     .append(",time:").append(p.time)
                     .append(",label:\"").append(mapDateFormat.format(new Date(p.time))).append("\"}");
         }
-        json.append(']');
-        mapView.evaluateJavascript("renderRoute(" + json + ")", null);
+        return json.append(']').toString();
     }
 
     private String mapHtml() {
@@ -1103,8 +1136,8 @@ public class MainActivity extends Activity {
                 + "function renderRoute(points){document.getElementById('place').textContent=points.length+' route points found';"
                 + "if(full)map.removeLayer(full);if(line)map.removeLayer(line);if(marker)map.removeLayer(marker);if(raf)cancelAnimationFrame(raf);"
                 + "routePoints=points;latlngs=points.map(ll);"
-                + "full=L.polyline(latlngs,{color:'#0ea5e9',opacity:1,weight:2,lineCap:'round',lineJoin:'round'}).addTo(map);"
-                + "line=L.polyline([], {color:'#0ea5e9',weight:2,lineCap:'round',lineJoin:'round'}).addTo(map);"
+                + "full=L.polyline(latlngs,{color:'#0ea5e9',opacity:1,weight:4,lineCap:'round',lineJoin:'round'}).addTo(map);"
+                + "line=L.polyline([], {color:'#0ea5e9',weight:4,lineCap:'round',lineJoin:'round'}).addTo(map);"
                 + "marker=L.marker(ll(points[0]),{icon:vehicleIcon(),interactive:false}).addTo(map);"
                 + "localZoom=routeZoom(points);setCamera(0,false);var start=0,duration=10000;"
                 + "setProgress(0,true);function step(ts){if(!start)start=ts;var t=Math.min((ts-start)/duration,1);setProgress(t,true);if(t<1)raf=requestAnimationFrame(step)}"
