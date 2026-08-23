@@ -210,7 +210,11 @@ public class MainActivity extends Activity {
         FrameLayout mapCard = new FrameLayout(this);
         mapCard.setBackground(rounded(0xffdbeafe, 0xffe5e8eb, 24));
         mapCard.setClipToOutline(true);
-        int mapHeightDp = Math.round((getResources().getDisplayMetrics().widthPixels / getResources().getDisplayMetrics().density) * 840f / 720f);
+        // The map card is inside the 16dp horizontal root padding. Match the
+        // capture aspect to that actual content width so export needs no crop.
+        float density = getResources().getDisplayMetrics().density;
+        int contentWidthDp = Math.round(getResources().getDisplayMetrics().widthPixels / density) - 32;
+        int mapHeightDp = Math.round(contentWidthDp * 840f / 720f);
         mapCard.addView(mapView, new FrameLayout.LayoutParams(-1, dp(mapHeightDp)));
         LinearLayout.LayoutParams routeLp = new LinearLayout.LayoutParams(-1, dp(mapHeightDp));
         routeLp.setMargins(0, 0, 0, 0);
@@ -354,8 +358,10 @@ public class MainActivity extends Activity {
                 long id = cursor.getLong(idCol);
                 long taken = cursor.getLong(dateCol);
                 Uri uri = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id);
-                float[] latLng = readLatLngFromColumns(cursor, latCol, lngCol);
-                if (latLng == null) latLng = readLatLng(uri);
+                // Prefer the original EXIF location. MediaStore's latitude and
+                // longitude columns can be rounded or stale after gallery edits.
+                float[] latLng = readLatLng(uri);
+                if (latLng == null) latLng = readLatLngFromColumns(cursor, latCol, lngCol);
                 if (latLng == null) continue;
                 withGps += 1;
                 RoutePoint prev = rows.isEmpty() ? null : rows.get(rows.size() - 1);
@@ -752,19 +758,7 @@ public class MainActivity extends Activity {
     }
 
     private void drawMapBitmap(Canvas canvas, Bitmap bitmap, RectF destination, Paint paint) {
-        float sourceAspect = bitmap.getWidth() / (float) bitmap.getHeight();
-        float destinationAspect = destination.width() / destination.height();
-        Rect source = new Rect(0, 0, bitmap.getWidth(), bitmap.getHeight());
-        if (sourceAspect > destinationAspect) {
-            int cropWidth = Math.round(bitmap.getHeight() * destinationAspect);
-            int left = (bitmap.getWidth() - cropWidth) / 2;
-            source.set(left, 0, left + cropWidth, bitmap.getHeight());
-        } else if (sourceAspect < destinationAspect) {
-            int cropHeight = Math.round(bitmap.getWidth() / destinationAspect);
-            int top = (bitmap.getHeight() - cropHeight) / 2;
-            source.set(0, top, bitmap.getWidth(), top + cropHeight);
-        }
-        canvas.drawBitmap(bitmap, source, destination, paint);
+        canvas.drawBitmap(bitmap, sourceRect(bitmap, destination), destination, paint);
     }
 
     private void drawVehicle(Canvas canvas, float x, float y, float dx, int animationFrame, Bitmap sprite) {
@@ -815,9 +809,32 @@ public class MainActivity extends Activity {
         double centerX = ((snapshot.centerLng + 180d) / 360d) * scale;
         double centerSin = Math.sin(Math.toRadians(Math.max(-85.05112878, Math.min(85.05112878, snapshot.centerLat))));
         double centerY = (0.5d - Math.log((1d + centerSin) / (1d - centerSin)) / (4d * Math.PI)) * scale;
-        float width = snapshot.bitmap == null ? VIDEO_WIDTH : snapshot.bitmap.getWidth();
-        float height = snapshot.bitmap == null ? 560f : snapshot.bitmap.getHeight();
-        return new float[]{plot.centerX() + (float) ((pointX - centerX) * plot.width() / width), plot.centerY() + (float) ((pointY - centerY) * plot.height() / height)};
+        float bitmapWidth = snapshot.bitmap == null ? plot.width() : snapshot.bitmap.getWidth();
+        float bitmapHeight = snapshot.bitmap == null ? plot.height() : snapshot.bitmap.getHeight();
+        Rect source = sourceRect(snapshot.bitmap, plot);
+        float bitmapX = bitmapWidth / 2f + (float) (pointX - centerX);
+        float bitmapY = bitmapHeight / 2f + (float) (pointY - centerY);
+        return new float[]{
+                plot.left + (bitmapX - source.left) * plot.width() / source.width(),
+                plot.top + (bitmapY - source.top) * plot.height() / source.height()
+        };
+    }
+
+    private Rect sourceRect(Bitmap bitmap, RectF destination) {
+        if (bitmap == null) return new Rect(0, 0, Math.round(destination.width()), Math.round(destination.height()));
+        float sourceAspect = bitmap.getWidth() / (float) bitmap.getHeight();
+        float destinationAspect = destination.width() / destination.height();
+        Rect source = new Rect(0, 0, bitmap.getWidth(), bitmap.getHeight());
+        if (sourceAspect > destinationAspect) {
+            int cropWidth = Math.round(bitmap.getHeight() * destinationAspect);
+            int left = (bitmap.getWidth() - cropWidth) / 2;
+            source.set(left, 0, left + cropWidth, bitmap.getHeight());
+        } else if (sourceAspect < destinationAspect) {
+            int cropHeight = Math.round(bitmap.getWidth() / destinationAspect);
+            int top = (bitmap.getHeight() - cropHeight) / 2;
+            source.set(0, top, bitmap.getWidth(), top + cropHeight);
+        }
+        return source;
     }
 
     private Bounds bounds(List<RoutePoint> route) {
