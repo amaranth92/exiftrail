@@ -230,14 +230,17 @@ input:focus-visible,
   background-image: var(--route-sprite);
   background-repeat: no-repeat;
   background-size: 400% 100%;
-  animation: route-character-walk 520ms steps(4, end) infinite;
+  animation: route-character-walk 520ms steps(1, end) infinite;
   object-fit: contain;
   pointer-events: none;
 }
 
 @keyframes route-character-walk {
-  0% { background-position: 0 0; transform: translateY(1px); }
-  100% { background-position: 100% 0; transform: translateY(-1px); }
+  0% { background-position: 0 0; }
+  25% { background-position: 33.333% 0; }
+  50% { background-position: 66.667% 0; }
+  75% { background-position: 100% 0; }
+  100% { background-position: 0 0; }
 }
 
 .empty {

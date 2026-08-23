@@ -284,7 +284,7 @@ async function exportVideo(points: PhotoPoint[], tripLabel: string): Promise<Exp
   for (let frame = 0; frame < frames; frame += 1) {
     const t = frame / (frames - 1);
     const snapshot = snapshots.at(-1) || { image: null, viewport: fallbackViewport };
-    drawVideoFrame(ctx, canvas, active, thumbs, sprite, snapshots, snapshot, t, tripLabel);
+    drawVideoFrame(ctx, canvas, active, thumbs, sprite, snapshots, snapshot, t, frame, tripLabel);
     await new Promise((resolve) => requestAnimationFrame(resolve));
   }
   recorder.stop();
@@ -304,6 +304,7 @@ function drawVideoFrame(
   snapshots: MapSnapshot[],
   fallback: MapSnapshot,
   t: number,
+  animationFrame: number,
   tripLabel: string,
 ) {
   ctx.fillStyle = "#0b1020";
@@ -374,7 +375,7 @@ function drawVideoFrame(
   const mix = exact - currentIndex;
   const x = current.x + (next.x - current.x) * mix;
   const y = current.y + (next.y - current.y) * mix;
-  drawVehicle(ctx, x, y, next.x - current.x, t, sprite);
+  drawVehicle(ctx, x, y, next.x - current.x, animationFrame, sprite);
   ctx.restore();
 
   ctx.fillStyle = "#111827";
@@ -403,15 +404,14 @@ function drawVehicle(
   x: number,
   y: number,
   dx: number,
-  progress: number,
+  animationFrame: number,
   sprite: HTMLImageElement,
 ) {
   ctx.save();
-  const bob = Math.sin(progress * Math.PI * 8) * 2;
-  ctx.translate(x, y + bob);
+  ctx.translate(x, y);
   if (dx < 0) ctx.scale(-1, 1);
   const frameWidth = sprite.width / 4;
-  const frame = Math.floor(progress * 28) % 4;
+  const frame = Math.floor(animationFrame / 4) % 4;
   ctx.drawImage(sprite, frame * frameWidth, 0, frameWidth, sprite.height, -36, -48, 72, 96);
   ctx.restore();
 }

@@ -520,7 +520,7 @@ public class MainActivity extends Activity {
                 float progress = frame / (float) (totalFrames - 1);
                 Canvas canvas = surface.lockCanvas(null);
                 try {
-                    drawVideoFrame(canvas, route, progress, mapSnapshots, characterSprite);
+                    drawVideoFrame(canvas, route, progress, frame, mapSnapshots, characterSprite);
                 } finally {
                     surface.unlockCanvasAndPost(canvas);
                 }
@@ -603,7 +603,7 @@ public class MainActivity extends Activity {
         return new MapSnapshot(result.get(), camera.centerLat, camera.centerLng, camera.zoom, camera.world);
     }
 
-    private void drawVideoFrame(Canvas canvas, List<RoutePoint> route, float progress, List<MapSnapshot> snapshots, Bitmap characterSprite) {
+    private void drawVideoFrame(Canvas canvas, List<RoutePoint> route, float progress, int animationFrame, List<MapSnapshot> snapshots, Bitmap characterSprite) {
         Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         canvas.drawColor(0xffdbeafe);
         RectF mapRect = new RectF(0, 210, VIDEO_WIDTH, 1050);
@@ -650,7 +650,7 @@ public class MainActivity extends Activity {
         paint.setStrokeWidth(14);
         paint.setColor(0xff0ea5e9);
         canvas.drawPath(active, paint);
-        drawVehicle(canvas, x, y, nextPos[0] - currentPos[0], progress, characterSprite);
+        drawVehicle(canvas, x, y, nextPos[0] - currentPos[0], animationFrame, characterSprite);
         canvas.restore();
 
         paint.setStyle(Paint.Style.FILL);
@@ -677,14 +677,14 @@ public class MainActivity extends Activity {
         canvas.drawRoundRect(new RectF(56, VIDEO_HEIGHT - 70, 56 + (VIDEO_WIDTH - 112) * progress, VIDEO_HEIGHT - 52), 99, 99, paint);
     }
 
-    private void drawVehicle(Canvas canvas, float x, float y, float dx, float progress, Bitmap sprite) {
+    private void drawVehicle(Canvas canvas, float x, float y, float dx, int animationFrame, Bitmap sprite) {
         if (sprite == null) return;
         canvas.save();
-        canvas.translate(x, y + (float) Math.sin(progress * Math.PI * 8) * 2f);
+        canvas.translate(x, y);
         if (dx < 0) canvas.scale(-1f, 1f);
         Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
         int frameWidth = sprite.getWidth() / 4;
-        int frame = ((int) (progress * 28f)) % 4;
+        int frame = (animationFrame / 4) % 4;
         Rect source = new Rect(frame * frameWidth, 0, (frame + 1) * frameWidth, sprite.getHeight());
         canvas.drawBitmap(sprite, source, new RectF(-36, -48, 36, 48), paint);
         canvas.restore();
@@ -787,7 +787,7 @@ public class MainActivity extends Activity {
         return "<!doctype html><html><head>"
                 + "<meta name='viewport' content='width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no'>"
                 + "<link rel='stylesheet' href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'>"
-                + "<style>html,body,#map{height:100%;margin:0;background:#dbeafe}.leaflet-container{font:14px system-ui}.panel{position:absolute;z-index:500;left:14px;right:14px;top:14px;background:rgba(25,31,40,.92);color:white;padding:12px 14px;border-radius:16px;font:800 14px system-ui;box-shadow:0 10px 24px rgba(25,31,40,.16)}.panel small{display:block;margin-top:4px;color:#c9d8ee;font-weight:700}.progress{height:5px;margin-top:10px;background:rgba(255,255,255,.16);border-radius:999px;overflow:hidden}.bar{height:100%;width:0;background:#5b9bff;border-radius:999px}.vehicle{border:0;background:transparent}.route-character-sprite{display:block;width:36px;height:48px;background-image:url('characters/wanderer-walk.png');background-repeat:no-repeat;background-size:400% 100%;animation:route-character-walk 520ms steps(4,end) infinite}@keyframes route-character-walk{0%{background-position:0 0;transform:translateY(1px)}100%{background-position:100% 0;transform:translateY(-1px)}}</style>"
+                + "<style>html,body,#map{height:100%;margin:0;background:#dbeafe}.leaflet-container{font:14px system-ui}.panel{position:absolute;z-index:500;left:14px;right:14px;top:14px;background:rgba(25,31,40,.92);color:white;padding:12px 14px;border-radius:16px;font:800 14px system-ui;box-shadow:0 10px 24px rgba(25,31,40,.16)}.panel small{display:block;margin-top:4px;color:#c9d8ee;font-weight:700}.progress{height:5px;margin-top:10px;background:rgba(255,255,255,.16);border-radius:999px;overflow:hidden}.bar{height:100%;width:0;background:#5b9bff;border-radius:999px}.vehicle{border:0;background:transparent}.route-character-sprite{display:block;width:36px;height:48px;background-image:url('characters/wanderer-walk.png');background-repeat:no-repeat;background-size:400% 100%;animation:route-character-walk 520ms steps(1,end) infinite}@keyframes route-character-walk{0%{background-position:0 0}25%{background-position:33.333% 0}50%{background-position:66.667% 0}75%{background-position:100% 0}100%{background-position:0 0}}</style>"
                 + "</head><body><div id='map'></div><div id='panel' class='panel'><span id='place'>Route preview appears here</span><small id='time'>Waiting for photo GPS points</small><div class='progress'><div class='bar' id='bar'></div></div></div>"
                 + "<script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></script>"
                 + "<script>"
