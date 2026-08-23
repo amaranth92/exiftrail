@@ -12,6 +12,8 @@ const samplePhotos = [
 test("loads sample EXIF photos and exports a WebM route", async ({ page }) => {
   await page.goto("/");
 
+  await page.getByLabel("From", { exact: true }).fill("2024-01-01");
+  await page.getByLabel("To", { exact: true }).fill("2024-12-31");
   await page.locator('input[type="file"]').setInputFiles(samplePhotos);
   await expect(page.getByText("Route video preview is ready. Save it and post it anywhere.")).toBeVisible();
   await expect(page.getByText("5 route points")).toBeVisible();
@@ -33,6 +35,14 @@ test("mobile flow is portrait friendly", async ({ page }) => {
   await expect(page.getByText("No Google Timeline required.")).toBeVisible();
   await expect(page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).resolves.toBe(true);
 
+  const today = new Date();
+  const currentYear = today.getFullYear().toString();
+  const todayValue = [today.getFullYear(), String(today.getMonth() + 1).padStart(2, "0"), String(today.getDate()).padStart(2, "0")].join("-");
+  await expect(page.getByLabel("From", { exact: true })).toHaveValue(`${currentYear}-01-01`);
+  await expect(page.getByLabel("To", { exact: true })).toHaveValue(todayValue);
+
+  await page.getByLabel("From", { exact: true }).fill("2024-01-01");
+  await page.getByLabel("To", { exact: true }).fill("2024-12-31");
   await page.locator('input[type="file"]').setInputFiles(samplePhotos);
   await expect(page.getByText("5 route points")).toBeVisible();
   await expect(page.locator(".leaflet-overlay-pane path").first()).toBeVisible();

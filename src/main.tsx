@@ -37,6 +37,13 @@ type MapSnapshot = { image: HTMLCanvasElement | null; viewport: GeoViewport };
 const EXIF_CONCURRENCY = Math.max(4, Math.min(8, navigator.hardwareConcurrency || 4));
 const ACCEPTED_IMAGES = "image/*,.jpg,.jpeg,.heic,.heif";
 
+function dateInputValue(date: Date) {
+  return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0"), String(date.getDate()).padStart(2, "0")].join("-");
+}
+
+const today = new Date();
+const DEFAULT_DATE_RANGE: DateRange = { from: `${today.getFullYear()}-01-01`, to: dateInputValue(today) };
+
 const PHOTO_TYPES = new Set(["image/jpeg", "image/jpg", "image/heic", "image/heif"]);
 const ROUTE_SPRITE = "./assets/characters/satgat-walk-8.png";
 let activeMapController: {
@@ -503,7 +510,7 @@ function App() {
   const [message, setMessage] = useState("Allow photo access, then ExifTrail builds a route video from time and GPS metadata.");
   const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
   const [exporting, setExporting] = useState(false);
-  const [dateRange, setDateRange] = useState<DateRange>({ from: "", to: "" });
+  const [dateRange, setDateRange] = useState<DateRange>(DEFAULT_DATE_RANGE);
 
   useEffect(() => () => points.forEach((point) => URL.revokeObjectURL(point.url)), [points]);
 

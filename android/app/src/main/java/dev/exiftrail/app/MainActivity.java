@@ -83,7 +83,9 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        from.set(2023, Calendar.JANUARY, 1, 0, 0, 0);
+        int currentYear = Calendar.getInstance().get(Calendar.YEAR);
+        from.set(currentYear, Calendar.JANUARY, 1, 0, 0, 0);
+        to.setTimeInMillis(System.currentTimeMillis());
         to.set(Calendar.HOUR_OF_DAY, 23);
         to.set(Calendar.MINUTE, 59);
         to.set(Calendar.SECOND, 59);
