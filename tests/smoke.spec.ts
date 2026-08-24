@@ -27,6 +27,16 @@ test("loads sample EXIF photos and exports a WebM route", async ({ page }) => {
   expect(download.suggestedFilename()).toMatch(/^exiftrail-route\.(webm|mp4)$/);
 });
 
+test("sample route can be previewed without selecting local photos", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "Try sample route" }).click();
+  await expect(page.getByText("Route video preview is ready. Save it and post it anywhere.")).toBeVisible();
+  await expect(page.getByText("5 route points")).toBeVisible();
+  await expect(page.getByText("1 photos skipped without GPS")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Save video" })).toBeEnabled();
+});
+
 test("mobile flow is portrait friendly", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");

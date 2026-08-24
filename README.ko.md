@@ -14,17 +14,16 @@
   <a href="https://github.com/amaranth92/exiftrail/raw/refs/heads/master/public/downloads/ExifTrail-Android.apk">Android APK 다운로드</a>
 </p>
 
-![ExifTrail 앱 아이콘](public/assets/brand/satgat-icon.png)
-
 ## ExifTrail은 어떤 앱인가요?
 
-ExifTrail은 휴대폰에 이미 저장된 여행 사진을 시간순 이동 경로 영상으로
-바꿔주는 개인정보 보호 중심의 오픈소스 프로젝트입니다. 사진의 촬영 시각과
-GPS EXIF 정보를 로컬에서 읽고, OpenStreetMap 위에 경로를 그린 뒤, 김삿갓
-캐릭터가 이동하는 세로형 영상을 만듭니다.
+ExifTrail은 GPS가 포함된 여행 사진을 공유용 9:16 경로 영상으로 바꿔주는
+오픈소스 앱입니다. 사진의 촬영 시각과 GPS EXIF 정보를 기기 안에서 읽고,
+OpenStreetMap 위에 경로를 그린 뒤, 김삿갓 캐릭터가 이동하는 세로형 영상을
+만듭니다.
 
-이 프로젝트는 앱스토어 배포를 목표로 하지 않습니다. 소스코드를 공개해 누구나
-직접 실행하고, 구조를 확인하고, 개선할 수 있게 하는 것이 목적입니다.
+웹 데모에서 바로 사용하거나 이 저장소의 Android APK를 직접 설치할 수
+있습니다. 소스코드도 공개되어 있어 사진이 외부로 전송되지 않는 기본 흐름을
+확인할 수 있습니다.
 
 ## 만든 이유
 
@@ -62,14 +61,17 @@ EXIF 정보만으로 Google Timeline과 비슷한 결과를 만들도록 ExifTra
 
 <table>
   <tr>
-    <td><img src="public/docs/screenshots/exiftrail-1-cropped.png" alt="Decody 배너가 보이는 첫 화면" width="220"></td>
-    <td><img src="public/docs/screenshots/exiftrail-2-cropped.png" alt="Neon Drift 배너가 보이는 첫 화면" width="220"></td>
-  </tr>
-  <tr>
-    <td><img src="public/docs/screenshots/exiftrail-3-cropped.jpg" alt="영상 생성 진행 화면" width="220"></td>
-    <td><img src="public/docs/screenshots/exiftrail-4-final.jpg" alt="완성된 경로 결과 화면" width="220"></td>
+    <td><img src="public/docs/screenshots/exiftrail-3-cropped.jpg" alt="경로 영상 생성 진행 화면" width="220"></td>
+    <td><img src="public/docs/screenshots/exiftrail-4-final.jpg" alt="완성된 여행 경로 영상" width="220"></td>
   </tr>
 </table>
+
+## 시작 전 확인
+
+GPS 좌표가 포함된 JPG, JPEG, HEIC, HEIF 사진을 사용하세요. GPS가 없는
+사진은 결과에서 제외되며, 경로를 만들려면 유효한 좌표가 최소 2개 필요합니다.
+먼저 웹 데모의 샘플 경로로 전체 흐름을 확인한 뒤 본인의 사진을 선택하면
+됩니다.
 
 ## 동작 방식
 

@@ -14,17 +14,15 @@
   <a href="https://github.com/amaranth92/exiftrail/raw/refs/heads/master/public/downloads/ExifTrail-Android.apk">Download Android APK</a>
 </p>
 
-![ExifTrail app icon](public/assets/brand/satgat-icon.png)
-
 ## What is ExifTrail?
 
-ExifTrail turns the photos already on your phone into a chronological travel
-route video. It reads capture time and GPS metadata locally, draws the route on
-OpenStreetMap, follows it with a small wandering Satgat character, and exports
-a vertical video for sharing.
+ExifTrail turns GPS-tagged travel photos into a shareable 9:16 route video. It
+reads capture time and GPS metadata locally, draws the route on OpenStreetMap,
+follows it with a small wandering Satgat character, and exports a vertical
+video for sharing.
 
-This is a source-first open-source project. There is no app-store launch plan;
-the goal is to publish the code and let people run, inspect, and improve it.
+You can use the hosted web demo or install the APK directly from this
+repository. The source is open so the local-first data flow can be inspected.
 
 ## Why I built it
 
@@ -65,14 +63,17 @@ The repository includes the sample MP4 created from the project:
 
 <table>
   <tr>
-    <td><img src="public/docs/screenshots/exiftrail-1-cropped.png" alt="Home screen with Decody banner" width="220"></td>
-    <td><img src="public/docs/screenshots/exiftrail-2-cropped.png" alt="Home screen with Neon Drift banner" width="220"></td>
-  </tr>
-  <tr>
-    <td><img src="public/docs/screenshots/exiftrail-3-cropped.jpg" alt="Video generation progress" width="220"></td>
-    <td><img src="public/docs/screenshots/exiftrail-4-final.jpg" alt="Generated route result" width="220"></td>
+    <td><img src="public/docs/screenshots/exiftrail-3-cropped.jpg" alt="Route video generation progress" width="220"></td>
+    <td><img src="public/docs/screenshots/exiftrail-4-final.jpg" alt="Generated travel route video" width="220"></td>
   </tr>
 </table>
+
+## Before you start
+
+Use JPG, JPEG, HEIC, or HEIF photos with GPS coordinates. Photos without GPS
+are reported and skipped, and a route needs at least two valid points. Use the
+sample route in the live demo to verify the workflow before selecting your own
+photos.
 
 ## How it works
 

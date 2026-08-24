@@ -46,6 +46,15 @@ const DEFAULT_DATE_RANGE: DateRange = { from: `${today.getFullYear()}-01-01`, to
 
 const PHOTO_TYPES = new Set(["image/jpeg", "image/jpg", "image/heic", "image/heif"]);
 const ROUTE_SPRITE = "./assets/characters/satgat-walk-8.png";
+const SAMPLE_RANGE: DateRange = { from: "2024-01-01", to: "2024-12-31" };
+const SAMPLE_PHOTOS = [
+  "00-no-gps.jpg",
+  "01-perth.jpg",
+  "02-fremantle.jpg",
+  "03-rottnest.jpg",
+  "04-margaret-river.jpg",
+  "05-albany.jpg",
+];
 let activeMapController: {
   capture: (progress: number, world: boolean) => Promise<MapSnapshot>;
 } | null = null;
@@ -517,7 +526,7 @@ function App() {
   const [summary, setSummary] = useState<ScanSummary | null>(null);
   const [progress, setProgress] = useState(1);
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("Allow photo access, then ExifTrail builds a route video from time and GPS metadata.");
+  const [message, setMessage] = useState("Start with the sample route or choose your own photos. Your photos stay on this device.");
   const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
   const [exporting, setExporting] = useState(false);
   const [dateRange, setDateRange] = useState<DateRange>(DEFAULT_DATE_RANGE);
@@ -531,8 +540,8 @@ function App() {
     await loadFiles([...files]);
   }
 
-  async function loadFiles(files: File[]) {
-    if (dateRange.from && dateRange.to && dateRange.from > dateRange.to) {
+  async function loadFiles(files: File[], range = dateRange) {
+    if (range.from && range.to && range.from > range.to) {
       setMessage("The start date must be earlier than the end date.");
       return;
     }
@@ -541,7 +550,7 @@ function App() {
     setMessage("Scanning photos locally. Nothing is uploaded.");
     points.forEach((point) => URL.revokeObjectURL(point.url));
 
-    const result = await readPhotos(files, setScanProgress, dateRange);
+    const result = await readPhotos(files, setScanProgress, range);
     setPoints(result.points);
     setSummary(result.summary);
     setBusy(false);
@@ -551,7 +560,28 @@ function App() {
       setMessage("Route video preview is ready. Save it and post it anywhere.");
       setTimeout(play, 50);
     } else {
-      setMessage("No route could be built. Choose photos with GPS metadata, or widen the date range.");
+      setMessage("No usable route points found. GPS metadata is required, or try the sample route first.");
+    }
+  }
+
+  async function trySample() {
+    setBusy(true);
+    setMessage("Loading the sample route...");
+    try {
+      const files = await Promise.all(
+        SAMPLE_PHOTOS.map(async (name) => {
+          const response = await fetch(`./samples/${name}`);
+          if (!response.ok) throw new Error("Sample photos could not be loaded.");
+          const blob = await response.blob();
+          return new File([blob], name, { type: blob.type || "image/jpeg" });
+        }),
+      );
+      setDateRange(SAMPLE_RANGE);
+      await loadFiles(files, SAMPLE_RANGE);
+    } catch (err) {
+      setBusy(false);
+      setScanProgress(null);
+      setMessage(err instanceof Error ? err.message : "Sample route could not be loaded.");
     }
   }
 
@@ -590,16 +620,15 @@ function App() {
 
       <section className="hero simple">
         <div className="intro">
-          <p className="eyebrow">Your memories, in motion</p>
-          <h1>Turn photo memories into a route.</h1>
+          <p className="eyebrow">TRAVEL PHOTO → ROUTE VIDEO</p>
+          <h1>Turn travel photos into a route video.</h1>
           <p className="lead">
-            Allow photos, then ExifTrail turns their time and location metadata into a moving map video.
+            Use the GPS and capture time already inside your photos to create a shareable 9:16 travel route video.
           </p>
           <div className="consent">
-            <b>No Google Timeline required.</b>
+            <b>Private by default. No Google Timeline required.</b>
             <span>
-              Your selected photos stay on this device. ExifTrail reads capture time and GPS, sorts them in order,
-              animates the route, and prepares a vertical video.
+              ExifTrail reads metadata locally, sorts your route, and prepares the video on your device. Photos are never uploaded.
             </span>
           </div>
           <div className="date-range" aria-label="Optional date range">
@@ -617,16 +646,37 @@ function App() {
               Allow photos and create video
               <input type="file" multiple accept={ACCEPTED_IMAGES} onChange={(e) => onFiles(e.target.files)} />
             </label>
+            <button className="secondary cta" type="button" disabled={busy || exporting} onClick={trySample}>
+              {busy ? "Preparing route..." : "Try sample route"}
+            </button>
             {active.length >= 2 && (
-              <button className="primary cta" disabled={busy || exporting} onClick={saveVideo}>
+              <button className="primary cta save-action" type="button" disabled={busy || exporting} onClick={saveVideo}>
                 {exporting ? "Rendering video..." : "Save video"}
               </button>
             )}
           </div>
-          <p className="privacy">No upload by default. Original photos are never edited, moved, or deleted.</p>
+          <p className="format-note">JPG, JPEG, HEIC · GPS metadata creates route points · sample included</p>
+          <p className="privacy">Original photos are never edited, moved, or deleted.</p>
         </div>
         <div className="phone" aria-label="Route preview">
-          {active.length > 1 ? <RouteMap points={points} progress={progress} /> : <div className="empty">Moving route preview appears here</div>}
+          {active.length > 1 ? (
+            <RouteMap points={points} progress={progress} />
+          ) : (
+            <div className="sample-preview">
+              <video
+                className="sample-video"
+                controls
+                playsInline
+                preload="metadata"
+                poster="./docs/screenshots/exiftrail-4-final.jpg"
+                aria-label="Sample ExifTrail travel route video"
+              >
+                <source src="./demo/exiftrail-sample-route.mp4" type="video/mp4" />
+                <source src="./demo/exiftrail-sample-route.webm" type="video/webm" />
+              </video>
+              <span className="sample-label">Sample output</span>
+            </div>
+          )}
         </div>
       </section>
 
