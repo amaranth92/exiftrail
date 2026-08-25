@@ -1417,8 +1417,12 @@ public class MainActivity extends Activity {
     private void drawTrail(Canvas canvas, List<RoutePoint> route, float progress, MapSnapshot snapshot,
                            RectF plot, Paint paint) {
         if (route.size() < 2 || progress <= 0f) return;
-        float start = Math.max(0f, progress - .24f);
-        int segments = 14;
+        float start = Math.max(0f, progress - .16f);
+        int segments = 8;
+        Paint glowPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        glowPaint.setStyle(Paint.Style.STROKE);
+        glowPaint.setStrokeCap(Paint.Cap.ROUND);
+        glowPaint.setStrokeJoin(Paint.Join.ROUND);
         for (int i = 0; i < segments; i++) {
             float fromProgress = start + (progress - start) * i / segments;
             float toProgress = start + (progress - start) * (i + 1) / segments;
@@ -1427,14 +1431,17 @@ public class MainActivity extends Activity {
             float headMix = (i + 1) / (float) segments;
             paint.setShader(new LinearGradient(
                     from[0], from[1], to[0], to[1],
-                    Color.argb(Math.round((.04f + headMix * .24f) * 255), 125, 211, 252),
-                    Color.argb(Math.round((.25f + headMix * .7f) * 255), 2, 132, 199),
+                    Color.argb(Math.round((.02f + headMix * .32f) * 255), 125, 211, 252),
+                    Color.argb(Math.round((.48f + headMix * .52f) * 255), 2, 132, 199),
                     Shader.TileMode.CLAMP
             ));
-            paint.setStrokeWidth(4.5f + headMix * 3f);
+            paint.setStrokeWidth(6f + headMix * 4f);
             Path segment = new Path();
             segment.moveTo(from[0], from[1]);
             segment.lineTo(to[0], to[1]);
+            glowPaint.setColor(Color.argb(Math.round((.12f + headMix * .42f) * 255), 56, 189, 248));
+            glowPaint.setStrokeWidth(16f + headMix * 14f);
+            canvas.drawPath(segment, glowPaint);
             canvas.drawPath(segment, paint);
         }
         paint.setShader(null);
@@ -1644,7 +1651,7 @@ public class MainActivity extends Activity {
                 + "<script>"
                 + "var map=L.map('map',{zoomControl:false,attributionControl:true,preferCanvas:false});"
                 + "L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);"
-                + "map.setView([0,0],2);var fullLine,trailLines=[],marker,raf,lastPan=0,routePoints=[],latlngs=[],localZoom=4,cameraMode='local';"
+                + "map.setView([0,0],2);var fullLine,trailLines=[],marker,raf,lastPan=0,lastTrail=0,routePoints=[],latlngs=[],localZoom=4,cameraMode='local';"
                 + "function ll(p){return [p.lat,p.lng]}"
                 + "function vehicleIcon(){return L.divIcon({className:'vehicle',iconSize:[32,64],iconAnchor:[16,58],html:'<span class=\"route-character-sprite\" role=\"img\" aria-label=\"route character\"></span>'})}"
                 + "function routeZoom(points){var lats=points.map(function(p){return p.lat}),lngs=points.map(function(p){return p.lng}),span=Math.max(Math.max.apply(null,lats)-Math.min.apply(null,lats),Math.max.apply(null,lngs)-Math.min.apply(null,lngs));return span>90?3:span>30?4:span>8?5:span>2?7:span>.5?9:span>.1?11:span>.02?13:span>.005?15:17}"
@@ -1652,15 +1659,15 @@ public class MainActivity extends Activity {
                 + "function setCamera(t,world){if(!routePoints.length)return;var a=routeAt(t),point=a.point;if(world){map.fitBounds(L.latLngBounds(latlngs),{padding:[30,30],maxZoom:2,animate:false});cameraMode='world'}else{map.setView(point,localZoom,{animate:false});cameraMode='local'}}"
                 + "function setTransition(t){if(!routePoints.length)return;var start=routeAt(.78).point,bounds=L.latLngBounds(latlngs),end=bounds.getCenter(),worldZoom=Math.min(2,map.getBoundsZoom(bounds,false,L.point(30,30))),lat=start[0]+(end.lat-start[0])*t,lng=start[1]+(end.lng-start[1])*t,zoom=localZoom+(worldZoom-localZoom)*t;map.setView([lat,lng],zoom,{animate:false});cameraMode='transition'}"
                 + "function interpolate(t){var a=routeAt(t);return a.point}"
-                + "function updateTrail(t){var start=Math.max(0,t-.24),segments=14,showFull=t>=.92;if(!fullLine)return;fullLine.setLatLngs(showFull?latlngs:[]);fullLine.setStyle({opacity:showFull?1:0});for(var i=0;i<segments;i++){if(!trailLines[i])trailLines[i]=L.polyline([],{color:i<segments-1?'#7dd3fc':'#0284c7',weight:5+i/segments*2,opacity:0,lineCap:'round',lineJoin:'round'}).addTo(map);var from=start+(t-start)*(i/segments),to=start+(t-start)*((i+1)/segments),opacity=showFull||t<=0?0:.08+i/segments*.92;trailLines[i].setLatLngs([interpolate(from),interpolate(to)]);trailLines[i].setStyle({opacity:opacity,color:i<segments-1?'#7dd3fc':'#0284c7',weight:5+i/segments*2})}}"
+                + "function updateTrail(t){var start=Math.max(0,t-.16),segments=8,showFull=t>=.92;if(!fullLine)return;fullLine.setLatLngs(showFull?latlngs:[]);fullLine.setStyle({opacity:showFull?1:0});for(var i=0;i<segments;i++){if(!trailLines[i])trailLines[i]=L.polyline([],{color:i<segments-1?'#7dd3fc':'#0284c7',weight:6+i/segments*4,opacity:0,lineCap:'round',lineJoin:'round',className:'route-trail-segment'}).addTo(map);var from=start+(t-start)*(i/segments),to=start+(t-start)*((i+1)/segments),opacity=showFull||t<=0?0:.04+i/segments*.96;trailLines[i].setLatLngs([interpolate(from),interpolate(to)]);trailLines[i].setStyle({opacity:opacity,color:i<segments-1?'#7dd3fc':'#0284c7',weight:6+i/segments*4})}}"
                 + "function setProgress(t,follow){if(!routePoints.length)return;var a=routeAt(t),point=a.point;updateTrail(t);marker.setLatLng(point);document.getElementById('time').textContent=a.cur.label;document.getElementById('bar').style.width=(Math.max(0,Math.min(1,t))*100).toFixed(1)+'%';if(follow&&performance.now()-lastPan>80){if(t>=.92&&cameraMode!=='world'){map.fitBounds(L.latLngBounds(latlngs),{padding:[30,30],maxZoom:2,animate:true,duration:.8});cameraMode='world'}else if(t<.92){map.setView(point,localZoom,{animate:false});cameraMode='local'}lastPan=performance.now()}}"
                 + "function renderRoute(points){document.getElementById('place').textContent=points.length+' route points found';"
                 + "if(fullLine)map.removeLayer(fullLine);trailLines.forEach(function(item){map.removeLayer(item)});trailLines=[];if(marker)map.removeLayer(marker);if(raf)cancelAnimationFrame(raf);"
                 + "routePoints=points;latlngs=points.map(ll);"
-                + "fullLine=L.polyline([], {color:'#0284c7',weight:7,opacity:0,lineCap:'round',lineJoin:'round'}).addTo(map);"
+                + "fullLine=L.polyline([], {color:'#0ea5e9',weight:8,opacity:0,lineCap:'round',lineJoin:'round',className:'route-complete'}).addTo(map);"
                 + "marker=L.marker(ll(points[0]),{icon:vehicleIcon(),interactive:false}).addTo(map);"
                 + "localZoom=routeZoom(points);setCamera(0,false);var start=0,duration=10000;"
-                + "setProgress(0,true);function step(ts){if(!start)start=ts;var t=Math.min((ts-start)/duration,1);setProgress(t,true);if(t<1)raf=requestAnimationFrame(step)}"
+                + "lastTrail=0;setProgress(0,true);function step(ts){if(!start)start=ts;var t=Math.min((ts-start)/duration,1);if(!lastTrail||ts-lastTrail>=33||t>=1){lastTrail=ts;setProgress(t,true)}if(t<1)raf=requestAnimationFrame(step)}"
                 + "raf=requestAnimationFrame(step)}"
                 + "</script></body></html>";
     }
