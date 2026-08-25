@@ -34,7 +34,7 @@ type ExportResult = { blob: Blob; filename: string };
 type DateRange = { from: string; to: string };
 type GeoViewport = { centerLat: number; centerLng: number; zoom: number; width: number; height: number; world: boolean };
 type MapSnapshot = { image: HTMLCanvasElement | null; viewport: GeoViewport };
-const EXIF_CONCURRENCY = Math.max(4, Math.min(8, navigator.hardwareConcurrency || 4));
+const EXIF_CONCURRENCY = Math.max(4, Math.min(10, (navigator.hardwareConcurrency || 4) + 2));
 const ACCEPTED_IMAGES = "image/*,.jpg,.jpeg,.heic,.heif";
 
 function dateInputValue(date: Date) {
@@ -46,6 +46,8 @@ const DEFAULT_DATE_RANGE: DateRange = { from: `${today.getFullYear()}-01-01`, to
 
 const PHOTO_TYPES = new Set(["image/jpeg", "image/jpg", "image/heic", "image/heif"]);
 const ROUTE_SPRITE = "./assets/characters/satgat-walk-8.png";
+const TRAIL_SEGMENTS = 14;
+const TRAIL_LENGTH = 0.24;
 const SAMPLE_RANGE: DateRange = { from: "2024-01-01", to: "2024-12-31" };
 const SAMPLE_PHOTOS = [
   "00-no-gps.jpg",
@@ -96,6 +98,8 @@ async function readPhotos(
   const toTime = range?.to ? +new Date(`${range.to}T23:59:59`) : Infinity;
   let done = 0;
   let outsideRange = 0;
+  let lastReported = 0;
+  const reportEvery = Math.max(1, Math.ceil(photos.length / 100));
   const rows: Array<PhotoPoint | null> = await mapLimit(
     photos,
     EXIF_CONCURRENCY,
@@ -125,7 +129,10 @@ async function readPhotos(
         return null;
       } finally {
         done += 1;
-        onProgress?.({ done, total: photos.length });
+        if (done === photos.length || done - lastReported >= reportEvery) {
+          lastReported = done;
+          onProgress?.({ done, total: photos.length });
+        }
       }
     },
   );
@@ -223,6 +230,7 @@ function wait(ms: number) {
 }
 
 function projectViewport(points: PhotoPoint[], viewport: GeoViewport, width: number, height: number) {
+  const crop = viewportCrop(viewport, width, height);
   const scale = 256 * 2 ** viewport.zoom;
   const centerX = ((viewport.centerLng + 180) / 360) * scale;
   const centerLat = Math.max(-85.05112878, Math.min(85.05112878, viewport.centerLat));
@@ -235,10 +243,21 @@ function projectViewport(points: PhotoPoint[], viewport: GeoViewport, width: num
     const y = (0.5 - Math.log((1 + sin) / (1 - sin)) / (4 * Math.PI)) * scale;
     return {
       ...point,
-      x: width / 2 + ((x - centerX) * width) / viewport.width,
-      y: height / 2 + ((y - centerY) * height) / viewport.height,
+      x: ((viewport.width / 2 + (x - centerX) - crop.left) * width) / crop.width,
+      y: ((viewport.height / 2 + (y - centerY) - crop.top) * height) / crop.height,
     };
   });
+}
+
+function viewportCrop(viewport: GeoViewport, width: number, height: number) {
+  const sourceAspect = viewport.width / viewport.height;
+  const destinationAspect = width / height;
+  if (sourceAspect > destinationAspect) {
+    const cropWidth = viewport.height * destinationAspect;
+    return { left: (viewport.width - cropWidth) / 2, top: 0, width: cropWidth, height: viewport.height };
+  }
+  const cropHeight = viewport.width / destinationAspect;
+  return { left: 0, top: (viewport.height - cropHeight) / 2, width: viewport.width, height: cropHeight };
 }
 
 function downloadBlob(blob: Blob, filename: string) {
@@ -289,7 +308,11 @@ async function exportVideo(points: PhotoPoint[], tripLabel: string): Promise<Exp
   const sprite = await loadImage(ROUTE_SPRITE);
   const snapshots: MapSnapshot[] = [];
   if (activeMapController) {
-    for (const progress of [0, 0.2, 0.4, 0.6, 0.8]) snapshots.push(await activeMapController.capture(progress, false));
+    // Keep enough camera checkpoints to crossfade the map instead of jumping
+    // between a handful of screenshots while the route is moving.
+    for (let index = 0; index < 13; index += 1) {
+      snapshots.push(await activeMapController.capture(index / 15, false));
+    }
     snapshots.push(await activeMapController.capture(1, true));
   }
   const stream = canvas.captureStream(30);
@@ -331,20 +354,23 @@ function drawVideoFrame(
 
   const localSnapshots = snapshots.slice(0, -1);
   const worldSnapshot = snapshots.at(-1);
-  const localIndex = Math.min(localSnapshots.length - 1, Math.floor((t / 0.82) * localSnapshots.length));
-  const localSnapshot = localSnapshots[localIndex] || fallback;
-  const useWorld = t >= 0.86 && Boolean(worldSnapshot);
-  const route = projectViewport(points, useWorld && worldSnapshot ? worldSnapshot.viewport : localSnapshot.viewport, canvas.width, 860);
-  if (useWorld && worldSnapshot?.image) {
-    ctx.drawImage(worldSnapshot.image, 0, 220, canvas.width, 860);
-  } else if (t >= 0.78 && worldSnapshot?.image && localSnapshot.image) {
-    ctx.globalAlpha = Math.min(1, (t - 0.78) / 0.12);
-    ctx.drawImage(localSnapshot.image, 0, 220, canvas.width, 860);
-    ctx.globalAlpha = 1 - Math.min(1, (t - 0.78) / 0.12);
-    ctx.drawImage(worldSnapshot.image, 0, 220, canvas.width, 860);
-    ctx.globalAlpha = 1;
+  const localSnapshot = localSnapshots.at(-1) || fallback;
+  const localPosition = Math.min(1, t / 0.8) * Math.max(0, localSnapshots.length - 1);
+  const localIndex = Math.min(localSnapshots.length - 1, Math.floor(localPosition));
+  const localNext = localSnapshots[Math.min(localSnapshots.length - 1, localIndex + 1)] || localSnapshot;
+  const localMix = localPosition - localIndex;
+  const transitionMix = Math.max(0, Math.min(1, (t - 0.78) / 0.14));
+  const localFrame = t < 0.78 ? { first: localSnapshots[localIndex] || fallback, second: localNext, mix: localMix } : { first: localSnapshot, second: localSnapshot, mix: 0 };
+  const useWorld = t >= 0.92 && Boolean(worldSnapshot);
+
+  if (t < 0.78) {
+    drawSnapshot(ctx, localFrame.first, localFrame.second, localFrame.mix, 0, 220, canvas.width, 860);
+  } else if (worldSnapshot && t < 0.92) {
+    drawSnapshot(ctx, localSnapshot, worldSnapshot, transitionMix, 0, 220, canvas.width, 860);
+  } else if (worldSnapshot?.image) {
+    drawSnapshotImage(ctx, worldSnapshot, 0, 220, canvas.width, 860);
   } else if (localSnapshot.image) {
-    ctx.drawImage(localSnapshot.image, 0, 220, canvas.width, 860);
+    drawSnapshotImage(ctx, localSnapshot, 0, 220, canvas.width, 860);
   }
   if (!localSnapshot.image && !worldSnapshot?.image) {
     ctx.fillStyle = "#dbeafe";
@@ -372,30 +398,16 @@ function drawVideoFrame(
   ctx.fillStyle = "#94a3b8";
   ctx.fillText(`${formatDate(points[0].time)} - ${formatDate(points.at(-1)!.time)}`, 72, 174);
 
-  ctx.save();
-  ctx.translate(0, 220);
-  ctx.strokeStyle = "rgba(15,23,42,.26)";
-  ctx.lineWidth = 8;
-  ctx.lineJoin = "round";
-  const currentIndex = Math.min(route.length - 1, Math.floor(t * (route.length - 1)));
-  const trailStart = Math.max(0, currentIndex - 80);
-  if (useWorld) drawPolyline(ctx, route, 1, 0);
-
-  ctx.strokeStyle = "#0ea5e9";
-  ctx.lineWidth = 10;
-  ctx.shadowBlur = 12;
-  ctx.shadowColor = "#0ea5e9";
-  drawPolyline(ctx, route, t, trailStart);
-  ctx.shadowBlur = 0;
-
-  const exact = (route.length - 1) * t;
-  const next = route[Math.min(route.length - 1, currentIndex + 1)];
-  const current = route[currentIndex];
-  const mix = exact - currentIndex;
-  const x = current.x + (next.x - current.x) * mix;
-  const y = current.y + (next.y - current.y) * mix;
-  drawVehicle(ctx, x, y, next.x - current.x, animationFrame, sprite);
-  ctx.restore();
+  if (useWorld && worldSnapshot) {
+    drawRouteLayer(ctx, points, worldSnapshot, t, animationFrame, sprite, canvas.width, 860, false, 1);
+  } else if (t >= 0.78 && worldSnapshot) {
+    drawRouteLayer(ctx, points, localSnapshot, t, animationFrame, sprite, canvas.width, 860, true, 1 - transitionMix);
+    drawRouteLayer(ctx, points, worldSnapshot, t, animationFrame, sprite, canvas.width, 860, true, transitionMix);
+    drawRouteLayer(ctx, points, worldSnapshot, 1, animationFrame, sprite, canvas.width, 860, false, transitionMix * 0.86);
+  } else {
+    drawRouteLayer(ctx, points, localFrame.first, t, animationFrame, sprite, canvas.width, 860, true, 1 - localFrame.mix);
+    drawRouteLayer(ctx, points, localFrame.second, t, animationFrame, sprite, canvas.width, 860, true, localFrame.mix);
+  }
 
   ctx.fillStyle = "#111827";
   ctx.fillRect(0, 1320, canvas.width, 600);
@@ -418,28 +430,151 @@ function drawVideoFrame(
   });
 }
 
+function drawSnapshot(
+  ctx: CanvasRenderingContext2D,
+  first: MapSnapshot,
+  second: MapSnapshot,
+  mix: number,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+) {
+  if (first.image) {
+    ctx.globalAlpha = 1 - mix;
+    drawSnapshotImage(ctx, first, x, y, width, height);
+  }
+  if (second.image && mix > 0) {
+    ctx.globalAlpha = mix;
+    drawSnapshotImage(ctx, second, x, y, width, height);
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawSnapshotImage(ctx: CanvasRenderingContext2D, snapshot: MapSnapshot, x: number, y: number, width: number, height: number) {
+  if (!snapshot.image) return;
+  const source = viewportCrop(snapshot.viewport, width, height);
+  const scaleX = snapshot.image.width / snapshot.viewport.width;
+  const scaleY = snapshot.image.height / snapshot.viewport.height;
+  ctx.drawImage(
+    snapshot.image,
+    source.left * scaleX,
+    source.top * scaleY,
+    source.width * scaleX,
+    source.height * scaleY,
+    x,
+    y,
+    width,
+    height,
+  );
+}
+
+function drawRouteLayer(
+  ctx: CanvasRenderingContext2D,
+  points: PhotoPoint[],
+  snapshot: MapSnapshot,
+  progress: number,
+  animationFrame: number,
+  sprite: HTMLImageElement,
+  width: number,
+  height: number,
+  showCharacter: boolean,
+  alpha: number,
+) {
+  const route = projectViewport(points, snapshot.viewport, width, height);
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.translate(0, 220);
+  ctx.beginPath();
+  ctx.rect(0, 0, width, height);
+  ctx.clip();
+  ctx.strokeStyle = "#0ea5e9";
+  ctx.lineWidth = 7;
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  ctx.shadowBlur = 8;
+  ctx.shadowColor = "rgba(14, 165, 233, .48)";
+  if (showCharacter) drawTrail(ctx, route, progress);
+  else drawPolyline(ctx, route, 1);
+  ctx.shadowBlur = 0;
+
+  if (showCharacter) {
+    const location = routeLocation(route, progress);
+    const current = route[location.index];
+    const next = route[Math.min(route.length - 1, location.index + 1)];
+    const x = current.x + (next.x - current.x) * location.fraction;
+    const y = current.y + (next.y - current.y) * location.fraction;
+    drawVehicle(ctx, x, y, animationFrame, sprite);
+  }
+  ctx.restore();
+}
+
 function drawVehicle(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
-  dx: number,
   animationFrame: number,
   sprite: HTMLImageElement,
 ) {
   ctx.save();
   ctx.translate(x, y);
-  if (dx < 0) ctx.scale(-1, 1);
   const frameWidth = sprite.width / 8;
-  const frame = Math.floor(animationFrame / 3) % 8;
+  const frame = Math.floor(animationFrame / 4) % 8;
   ctx.drawImage(sprite, frame * frameWidth, 0, frameWidth, sprite.height, -24, -48, 48, 96);
   ctx.restore();
 }
 
-function drawPolyline(ctx: CanvasRenderingContext2D, route: Array<{ x: number; y: number }>, progress: number, startIndex = 0) {
-  const last = Math.max(1, Math.floor((route.length - 1) * progress));
+function routeLocation<T>(route: T[], progress: number) {
+  if (route.length < 2) return { index: 0, fraction: 0 };
+  const exact = Math.max(0, Math.min(1, progress)) * (route.length - 1);
+  const index = Math.min(route.length - 2, Math.floor(exact));
+  return { index, fraction: exact - index };
+}
+
+function routePoint<T extends { x: number; y: number }>(route: T[], progress: number) {
+  const location = routeLocation(route, progress);
+  const current = route[location.index];
+  const next = route[Math.min(route.length - 1, location.index + 1)];
+  return {
+    x: current.x + (next.x - current.x) * location.fraction,
+    y: current.y + (next.y - current.y) * location.fraction,
+  };
+}
+
+function drawTrail(ctx: CanvasRenderingContext2D, route: Array<{ x: number; y: number }>, progress: number) {
+  if (route.length < 2 || progress <= 0) return;
+  const start = Math.max(0, progress - TRAIL_LENGTH);
+  const steps = Math.max(12, Math.ceil(route.length * 1.5));
+  for (let index = 0; index < steps; index += 1) {
+    const fromProgress = start + (progress - start) * (index / steps);
+    const toProgress = start + (progress - start) * ((index + 1) / steps);
+    const from = routePoint(route, fromProgress);
+    const to = routePoint(route, toProgress);
+    const headMix = (index + 1) / steps;
+    const gradient = ctx.createLinearGradient(from.x, from.y, to.x, to.y);
+    gradient.addColorStop(0, `rgba(125, 211, 252, ${0.04 + headMix * 0.24})`);
+    gradient.addColorStop(1, `rgba(2, 132, 199, ${0.25 + headMix * 0.7})`);
+    ctx.strokeStyle = gradient;
+    ctx.lineWidth = 4.5 + headMix * 3;
+    ctx.shadowBlur = 7 + headMix * 5;
+    ctx.shadowColor = `rgba(56, 189, 248, ${0.12 + headMix * 0.4})`;
+    ctx.beginPath();
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
+    ctx.stroke();
+  }
+  ctx.shadowBlur = 0;
+}
+
+function drawPolyline(ctx: CanvasRenderingContext2D, route: Array<{ x: number; y: number }>, progress: number) {
+  if (route.length < 2) return;
+  const location = routeLocation(route, progress);
   ctx.beginPath();
-  ctx.moveTo(route[startIndex].x, route[startIndex].y);
-  for (let i = startIndex + 1; i <= last; i += 1) ctx.lineTo(route[i].x, route[i].y);
+  ctx.moveTo(route[0].x, route[0].y);
+  for (let i = 1; i <= location.index; i += 1) ctx.lineTo(route[i].x, route[i].y);
+  const current = route[location.index];
+  const next = route[Math.min(route.length - 1, location.index + 1)];
+  ctx.lineTo(current.x + (next.x - current.x) * location.fraction, current.y + (next.y - current.y) * location.fraction);
   ctx.stroke();
 }
 
@@ -451,8 +586,10 @@ function RouteMap({ points, progress }: { points: PhotoPoint[]; progress: number
   const divRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const routeRef = useRef<L.Polyline | null>(null);
+  const trailLayersRef = useRef<L.Polyline[]>([]);
   const markerRef = useRef<L.Marker | null>(null);
   const cameraModeRef = useRef<"local" | "world">("local");
+  const active = points.filter((point) => point.enabled && !point.suspicious);
 
   useEffect(() => {
     if (!divRef.current || mapRef.current) return;
@@ -461,7 +598,14 @@ function RouteMap({ points, progress }: { points: PhotoPoint[]; progress: number
       attribution: "&copy; OpenStreetMap contributors",
       maxZoom: 19,
     }).addTo(mapRef.current);
-    routeRef.current = L.polyline([], { color: "#0ea5e9", weight: 5 }).addTo(mapRef.current);
+    trailLayersRef.current = Array.from({ length: TRAIL_SEGMENTS }, (_, index) => L.polyline([], {
+      color: index < TRAIL_SEGMENTS - 1 ? "#7dd3fc" : "#0284c7",
+      weight: 5 + index / TRAIL_SEGMENTS * 2,
+      opacity: 0,
+      lineCap: "round",
+      lineJoin: "round",
+    }).addTo(mapRef.current!));
+    routeRef.current = L.polyline([], { color: "#0284c7", weight: 7, opacity: 0, lineCap: "round", lineJoin: "round" }).addTo(mapRef.current);
     markerRef.current = L.marker([0, 0], { icon: vehicleIcon(), interactive: false }).addTo(mapRef.current);
   }, []);
 
@@ -473,19 +617,39 @@ function RouteMap({ points, progress }: { points: PhotoPoint[]; progress: number
     if (!map || !route || !marker || active.length === 0) return;
 
     const latLngs = active.map((point) => L.latLng(point.lat, point.lng));
-    const visible = latLngs.slice(0, Math.max(1, Math.ceil(latLngs.length * progress)));
-    route.setLatLngs(visible);
-    const currentIndex = Math.min(active.length - 1, Math.max(0, Math.ceil(active.length * progress) - 1));
-    marker.setLatLng(visible.at(-1)!);
-    marker.setIcon(vehicleIcon());
-    if (progress >= 0.86) {
+    const location = routeLocation(latLngs, progress);
+    const current = latLngs[location.index];
+    const next = latLngs[Math.min(latLngs.length - 1, location.index + 1)];
+    const point = L.latLng(
+      current.lat + (next.lat - current.lat) * location.fraction,
+      current.lng + (next.lng - current.lng) * location.fraction,
+    );
+    const showingFullRoute = progress >= 0.92;
+    route.setLatLngs(showingFullRoute ? latLngs : []);
+    route.setStyle({ opacity: showingFullRoute ? 1 : 0 });
+    const trailStart = Math.max(0, progress - TRAIL_LENGTH);
+    trailLayersRef.current.forEach((layer, index) => {
+      const fromProgress = trailStart + (progress - trailStart) * (index / TRAIL_SEGMENTS);
+      const toProgress = trailStart + (progress - trailStart) * ((index + 1) / TRAIL_SEGMENTS);
+      const from = interpolateLatLng(latLngs, fromProgress);
+      const to = interpolateLatLng(latLngs, toProgress);
+      const opacity = showingFullRoute ? 0 : progress <= 0 ? 0 : 0.08 + (index / TRAIL_SEGMENTS) * 0.92;
+      layer.setLatLngs([from, to]);
+      layer.setStyle({
+        opacity,
+        color: index < TRAIL_SEGMENTS - 1 ? "#7dd3fc" : "#0284c7",
+        weight: 5 + index / TRAIL_SEGMENTS * 2,
+      });
+    });
+    marker.setLatLng(point);
+    if (progress >= 0.92) {
       if (cameraModeRef.current !== "world") {
         map.fitBounds(L.latLngBounds(latLngs), { padding: [30, 30], animate: true, duration: 0.8 });
         cameraModeRef.current = "world";
       }
     } else {
       cameraModeRef.current = "local";
-      map.setView(visible.at(-1)!, localZoom(active), { animate: false });
+      map.setView(point, localZoom(active), { animate: false });
     }
   }, [points, progress]);
 
@@ -496,19 +660,27 @@ function RouteMap({ points, progress }: { points: PhotoPoint[]; progress: number
     if (!map || !element || active.length < 2) return;
     activeMapController = {
       capture: async (value, world) => {
-        const index = Math.min(active.length - 1, Math.floor(value * (active.length - 1)));
+        const location = routeLocation(active, value);
+        const current = active[location.index];
+        const next = active[Math.min(active.length - 1, location.index + 1)];
+        const lat = current.lat + (next.lat - current.lat) * location.fraction;
+        const lng = current.lng + (next.lng - current.lng) * location.fraction;
         if (world) map.setView([20, 0], 1, { animate: false });
-        else map.setView([active[index].lat, active[index].lng], localZoom(active), { animate: false });
+        else map.setView([lat, lng], localZoom(active), { animate: false });
         map.invalidateSize(false);
+        const routeOpacity = routeRef.current?.options.opacity ?? 0;
+        const trailOpacity = trailLayersRef.current.map((layer) => layer.options.opacity ?? 0);
         routeRef.current?.setStyle({ opacity: 0 });
+        trailLayersRef.current.forEach((layer) => layer.setStyle({ opacity: 0 }));
         markerRef.current?.setOpacity(0);
         try {
-          await wait(350);
+          await wait(220);
           const image = await html2canvas(element, { backgroundColor: "#dbeafe", imageTimeout: 3_000, logging: false, useCORS: true });
           const size = map.getSize();
           return { image, viewport: { centerLat: map.getCenter().lat, centerLng: map.getCenter().lng, zoom: map.getZoom(), width: size.x, height: size.y, world } };
         } finally {
-          routeRef.current?.setStyle({ opacity: 1 });
+          routeRef.current?.setStyle({ opacity: routeOpacity });
+          trailLayersRef.current.forEach((layer, index) => layer.setStyle({ opacity: trailOpacity[index] ?? 0 }));
           markerRef.current?.setOpacity(1);
         }
       },
@@ -518,7 +690,27 @@ function RouteMap({ points, progress }: { points: PhotoPoint[]; progress: number
     };
   }, [points]);
 
-  return <div className="map" ref={divRef} />;
+  const currentIndex = Math.min(Math.max(0, Math.floor(progress * Math.max(0, active.length - 1))), Math.max(0, active.length - 1));
+  return (
+    <div className="route-map-shell">
+      <div className="map" ref={divRef} />
+      <div className="map-overlay" aria-hidden="true">
+        <span>ROUTE PREVIEW</span>
+        <strong>{active[currentIndex] ? formatDate(active[currentIndex].time) : "Waiting for photos"}</strong>
+        <small>{Math.round(progress * 100)}% complete</small>
+      </div>
+    </div>
+  );
+}
+
+function interpolateLatLng(route: L.LatLng[], progress: number) {
+  const location = routeLocation(route, progress);
+  const current = route[location.index];
+  const next = route[Math.min(route.length - 1, location.index + 1)];
+  return L.latLng(
+    current.lat + (next.lat - current.lat) * location.fraction,
+    current.lng + (next.lng - current.lng) * location.fraction,
+  );
 }
 
 function App() {
@@ -530,8 +722,12 @@ function App() {
   const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
   const [exporting, setExporting] = useState(false);
   const [dateRange, setDateRange] = useState<DateRange>(DEFAULT_DATE_RANGE);
+  const previewFrameRef = useRef<number | null>(null);
 
-  useEffect(() => () => points.forEach((point) => URL.revokeObjectURL(point.url)), [points]);
+  useEffect(() => () => {
+    if (previewFrameRef.current !== null) cancelAnimationFrame(previewFrameRef.current);
+    points.forEach((point) => URL.revokeObjectURL(point.url));
+  }, [points]);
 
   const active = useMemo(() => points.filter((point) => point.enabled && !point.suspicious), [points]);
 
@@ -545,6 +741,8 @@ function App() {
       setMessage("The start date must be earlier than the end date.");
       return;
     }
+    if (previewFrameRef.current !== null) cancelAnimationFrame(previewFrameRef.current);
+    previewFrameRef.current = null;
     setBusy(true);
     setScanProgress({ done: 0, total: files.filter(isPhoto).length });
     setMessage("Scanning photos locally. Nothing is uploaded.");
@@ -586,6 +784,8 @@ function App() {
   }
 
   async function saveVideo() {
+    if (previewFrameRef.current !== null) cancelAnimationFrame(previewFrameRef.current);
+    previewFrameRef.current = null;
     setExporting(true);
     setMessage("Rendering a vertical route video on this device...");
     try {
@@ -600,15 +800,17 @@ function App() {
   }
 
   function play() {
+    if (previewFrameRef.current !== null) cancelAnimationFrame(previewFrameRef.current);
     let start = 0;
     const step = (now: number) => {
       if (!start) start = now;
       const next = Math.min((now - start) / 5000, 1);
       setProgress(next);
-      if (next < 1) requestAnimationFrame(step);
+      if (next < 1) previewFrameRef.current = requestAnimationFrame(step);
+      else previewFrameRef.current = null;
     };
     setProgress(0);
-    requestAnimationFrame(step);
+    previewFrameRef.current = requestAnimationFrame(step);
   }
 
   return (
