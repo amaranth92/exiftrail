@@ -297,14 +297,6 @@ input:focus-visible,
   pointer-events: none;
 }
 
-.route-trail-segment {
-  filter: drop-shadow(0 0 4px rgba(56, 189, 248, .75)) drop-shadow(0 0 11px rgba(14, 165, 233, .45));
-}
-
-.route-complete {
-  filter: drop-shadow(0 0 5px rgba(14, 165, 233, .8)) drop-shadow(0 0 14px rgba(14, 165, 233, .5));
-}
-
 @keyframes route-character-walk {
   0% { background-position: 0 0; }
   12.5% { background-position: 14.286% 0; }

@@ -46,8 +46,8 @@ const DEFAULT_DATE_RANGE: DateRange = { from: `${today.getFullYear()}-01-01`, to
 
 const PHOTO_TYPES = new Set(["image/jpeg", "image/jpg", "image/heic", "image/heif"]);
 const ROUTE_SPRITE = "./assets/characters/satgat-walk-8.png";
-const TRAIL_SEGMENTS = 8;
-const TRAIL_LENGTH = 0.16;
+const TRAIL_SEGMENTS = 14;
+const TRAIL_LENGTH = 0.24;
 const SAMPLE_RANGE: DateRange = { from: "2024-01-01", to: "2024-12-31" };
 const SAMPLE_PHOTOS = [
   "00-no-gps.jpg",
@@ -552,12 +552,12 @@ function drawTrail(ctx: CanvasRenderingContext2D, route: Array<{ x: number; y: n
     const to = routePoint(route, toProgress);
     const headMix = (index + 1) / steps;
     const gradient = ctx.createLinearGradient(from.x, from.y, to.x, to.y);
-    gradient.addColorStop(0, `rgba(125, 211, 252, ${0.02 + headMix * 0.32})`);
-    gradient.addColorStop(1, `rgba(2, 132, 199, ${0.48 + headMix * 0.52})`);
+    gradient.addColorStop(0, `rgba(125, 211, 252, ${0.04 + headMix * 0.24})`);
+    gradient.addColorStop(1, `rgba(2, 132, 199, ${0.25 + headMix * 0.7})`);
     ctx.strokeStyle = gradient;
-    ctx.lineWidth = 6 + headMix * 4;
-    ctx.shadowBlur = 12 + headMix * 10;
-    ctx.shadowColor = `rgba(56, 189, 248, ${0.28 + headMix * 0.58})`;
+    ctx.lineWidth = 4.5 + headMix * 3;
+    ctx.shadowBlur = 7 + headMix * 5;
+    ctx.shadowColor = `rgba(56, 189, 248, ${0.12 + headMix * 0.4})`;
     ctx.beginPath();
     ctx.moveTo(from.x, from.y);
     ctx.lineTo(to.x, to.y);
@@ -600,13 +600,12 @@ function RouteMap({ points, progress }: { points: PhotoPoint[]; progress: number
     }).addTo(mapRef.current);
     trailLayersRef.current = Array.from({ length: TRAIL_SEGMENTS }, (_, index) => L.polyline([], {
       color: index < TRAIL_SEGMENTS - 1 ? "#7dd3fc" : "#0284c7",
-      weight: 6 + index / TRAIL_SEGMENTS * 4,
+      weight: 5 + index / TRAIL_SEGMENTS * 2,
       opacity: 0,
       lineCap: "round",
       lineJoin: "round",
-      className: "route-trail-segment",
     }).addTo(mapRef.current!));
-    routeRef.current = L.polyline([], { color: "#0ea5e9", weight: 8, opacity: 0, lineCap: "round", lineJoin: "round", className: "route-complete" }).addTo(mapRef.current);
+    routeRef.current = L.polyline([], { color: "#0284c7", weight: 7, opacity: 0, lineCap: "round", lineJoin: "round" }).addTo(mapRef.current);
     markerRef.current = L.marker([0, 0], { icon: vehicleIcon(), interactive: false }).addTo(mapRef.current);
   }, []);
 
@@ -634,12 +633,12 @@ function RouteMap({ points, progress }: { points: PhotoPoint[]; progress: number
       const toProgress = trailStart + (progress - trailStart) * ((index + 1) / TRAIL_SEGMENTS);
       const from = interpolateLatLng(latLngs, fromProgress);
       const to = interpolateLatLng(latLngs, toProgress);
-      const opacity = showingFullRoute ? 0 : progress <= 0 ? 0 : 0.04 + (index / TRAIL_SEGMENTS) * 0.96;
+      const opacity = showingFullRoute ? 0 : progress <= 0 ? 0 : 0.08 + (index / TRAIL_SEGMENTS) * 0.92;
       layer.setLatLngs([from, to]);
       layer.setStyle({
         opacity,
         color: index < TRAIL_SEGMENTS - 1 ? "#7dd3fc" : "#0284c7",
-        weight: 6 + index / TRAIL_SEGMENTS * 4,
+        weight: 5 + index / TRAIL_SEGMENTS * 2,
       });
     });
     marker.setLatLng(point);
@@ -803,14 +802,10 @@ function App() {
   function play() {
     if (previewFrameRef.current !== null) cancelAnimationFrame(previewFrameRef.current);
     let start = 0;
-    let lastPaint = 0;
     const step = (now: number) => {
       if (!start) start = now;
       const next = Math.min((now - start) / 5000, 1);
-      if (next >= 1 || now - lastPaint >= 33) {
-        lastPaint = now;
-        setProgress(next);
-      }
+      setProgress(next);
       if (next < 1) previewFrameRef.current = requestAnimationFrame(step);
       else previewFrameRef.current = null;
     };
